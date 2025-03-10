@@ -70,11 +70,11 @@ class Member(MemberBase):
     Schema for member responses.
     
     Attributes:
-        id (int): Unique identifier for the member
+        id (str): Unique identifier for the member
         family_id (str): ID of the family this member belongs to
         created_at (datetime): When the member was created
     """
-    id: int
+    id: str
     family_id: str
     created_at: datetime
 
@@ -124,20 +124,20 @@ class ExpenseBase(BaseModel):
     Attributes:
         description (str): Description of what the expense was for
         amount (float): The monetary amount of the expense
-        paid_by (int): ID of the member who paid for the expense
+        paid_by (str): ID of the member who paid for the expense
     """
     description: str
     amount: float
-    paid_by: int
+    paid_by: str
 
 class ExpenseCreate(ExpenseBase):
     """
     Schema for creating a new expense.
     
     Attributes:
-        split_among (Optional[List[int]]): IDs of members who share this expense
+        split_among (Optional[List[str]]): IDs of members who share this expense
     """
-    split_among: Optional[List[int]] = None
+    split_among: Optional[List[str]] = None
 
 class ExpenseUpdate(BaseModel):
     """
@@ -147,13 +147,13 @@ class ExpenseUpdate(BaseModel):
     Attributes:
         description (Optional[str]): New description for the expense
         amount (Optional[float]): New amount for the expense
-        paid_by (Optional[int]): New member ID who paid for the expense
-        split_among (Optional[List[int]]): New list of member IDs who share this expense
+        paid_by (Optional[str]): New member ID who paid for the expense
+        split_among (Optional[List[str]]): New list of member IDs who share this expense
     """
     description: Optional[str] = None
     amount: Optional[float] = None
-    paid_by: Optional[int] = None
-    split_among: Optional[List[int]] = None
+    paid_by: Optional[str] = None
+    split_among: Optional[List[str]] = None
 
 class Expense(ExpenseBase):
     """
@@ -179,12 +179,12 @@ class PaymentBase(BaseModel):
     Base schema for payment data.
     
     Attributes:
-        from_member (int): ID of the member sending the payment
-        to_member (int): ID of the member receiving the payment
+        from_member (str): ID of the member sending the payment
+        to_member (str): ID of the member receiving the payment
         amount (float): The monetary amount of the payment
     """
-    from_member: int
-    to_member: int
+    from_member: str
+    to_member: str
     amount: float
 
 class PaymentCreate(PaymentBase):

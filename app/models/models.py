@@ -33,7 +33,7 @@ expense_member_association = Table(
     'expense_member_association',
     Base.metadata,
     Column('expense_id', String(36), ForeignKey('expenses.id')),
-    Column('member_id', Integer, ForeignKey('members.id'))
+    Column('member_id', String(36), ForeignKey('members.id'))
 )
 
 class Family(Base):
@@ -64,7 +64,7 @@ class Member(Base):
     Member model representing a person belonging to a family.
     
     Attributes:
-        id (int): Unique identifier for the member
+        id (str): Unique identifier for the member (UUID)
         name (str): Name of the member
         telegram_id (str): Telegram ID used for authentication
         family_id (str): ID of the family this member belongs to
@@ -77,7 +77,7 @@ class Member(Base):
     """
     __tablename__ = "members"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(String(36), primary_key=True, default=generate_uuid, index=True)
     name = Column(String, index=True)
     telegram_id = Column(String, unique=True, index=True)
     family_id = Column(String(36), ForeignKey("families.id"))
@@ -98,7 +98,7 @@ class Expense(Base):
         id (str): Unique identifier for the expense (UUID)
         description (str): Description of what the expense was for
         amount (float): The monetary amount of the expense
-        paid_by (int): ID of the member who paid for the expense
+        paid_by (str): ID of the member who paid for the expense
         family_id (str): ID of the family this expense belongs to
         created_at (datetime): When the expense was created
         paid_by_member (relationship): The member who paid for the expense
@@ -110,7 +110,7 @@ class Expense(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid, index=True)
     description = Column(String, index=True)
     amount = Column(Float)
-    paid_by = Column(Integer, ForeignKey("members.id"))
+    paid_by = Column(String(36), ForeignKey("members.id"))
     family_id = Column(String(36), ForeignKey("families.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -125,8 +125,8 @@ class Payment(Base):
     
     Attributes:
         id (str): Unique identifier for the payment (UUID)
-        from_member_id (int): ID of the member sending the payment
-        to_member_id (int): ID of the member receiving the payment
+        from_member_id (str): ID of the member sending the payment
+        to_member_id (str): ID of the member receiving the payment
         amount (float): The monetary amount of the payment
         family_id (str): ID of the family this payment belongs to
         created_at (datetime): When the payment was created
@@ -137,8 +137,8 @@ class Payment(Base):
     __tablename__ = "payments"
 
     id = Column(String(36), primary_key=True, default=generate_uuid, index=True)
-    from_member_id = Column(Integer, ForeignKey("members.id"))
-    to_member_id = Column(Integer, ForeignKey("members.id"))
+    from_member_id = Column(String(36), ForeignKey("members.id"))
+    to_member_id = Column(String(36), ForeignKey("members.id"))
     amount = Column(Float)
     family_id = Column(String(36), ForeignKey("families.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
