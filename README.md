@@ -55,10 +55,18 @@ pytest
 pytest --cov=app
 ```
 
+## Autor
+
+**Alex Montesino** - [@Alexmontesino96](https://github.com/Alexmontesino96)
+
+Si te gusta este proyecto, no dudes en seguirme en GitHub para ver más proyectos similares.
+
 ## Licencia
 
 Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
 
 ## Contacto
 
-Para cualquier consulta o sugerencia, por favor abre un issue en este repositorio. 
+Para cualquier consulta o sugerencia, por favor:
+- Abre un [issue](https://github.com/Alexmontesino96/FinancialFamilyAPI/issues) en este repositorio
+- Contacta directamente a través de GitHub: [@Alexmontesino96](https://github.com/Alexmontesino96) 
