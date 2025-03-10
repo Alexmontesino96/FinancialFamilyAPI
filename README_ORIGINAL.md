@@ -1,179 +1,224 @@
-# API de Family Finance
+# Documentación Técnica - FinancialFamilyAPI
 
-## Introducción
+Esta documentación técnica proporciona información detallada sobre la implementación, configuración y uso de FinancialFamilyAPI.
 
-La API de Family Finance es una solución completa para la gestión de finanzas compartidas entre miembros de una familia o grupo. Diseñada con FastAPI y PostgreSQL, esta API proporciona una interfaz robusta y eficiente para:
+## Arquitectura
 
-- **Gestión de grupos familiares**: Crear y administrar grupos familiares o de amigos que comparten gastos.
-- **Registro de miembros**: Añadir miembros a los grupos y gestionar sus perfiles.
-- **Control de gastos compartidos**: Registrar gastos y especificar cómo se dividen entre los miembros.
-- **Seguimiento de pagos**: Registrar pagos entre miembros para saldar deudas.
-- **Cálculo de balances**: Obtener en tiempo real el estado de cuentas de cada miembro, incluyendo deudas y créditos.
-- **Autenticación segura**: Proteger los datos mediante autenticación basada en tokens JWT.
+FinancialFamilyAPI está construida siguiendo una arquitectura de capas:
 
-Esta API está diseñada para ser utilizada por aplicaciones cliente como bots de Telegram, aplicaciones web o móviles que necesiten una solución backend para la gestión de finanzas compartidas.
+1. **Capa de API**: Implementada con FastAPI, maneja las solicitudes HTTP y respuestas.
+2. **Capa de Servicios**: Contiene la lógica de negocio principal.
+3. **Capa de Modelos**: Define las entidades de datos y su representación en la base de datos.
+4. **Capa de Persistencia**: Gestiona la interacción con PostgreSQL mediante SQLAlchemy.
 
-## Características principales
+## Estructura del Proyecto
 
-- **Arquitectura RESTful**: Endpoints bien definidos siguiendo las mejores prácticas de diseño de APIs.
-- **Documentación interactiva**: Interfaz Swagger/OpenAPI para explorar y probar los endpoints.
-- **Base de datos PostgreSQL**: Almacenamiento persistente y relacional para garantizar la integridad de los datos.
-- **Seguridad**: Autenticación mediante tokens JWT y protección de endpoints sensibles.
-- **Escalabilidad**: Diseñada para manejar múltiples familias y miembros de manera eficiente.
+```
+api/
+├── app/
+│   ├── auth/              # Autenticación y seguridad
+│   ├── models/            # Modelos de datos y esquemas
+│   ├── routers/           # Endpoints de la API
+│   ├── services/          # Lógica de negocio
+│   └── main.py            # Punto de entrada de la aplicación
+├── tests/                 # Pruebas automatizadas
+├── .env                   # Variables de entorno
+├── requirements.txt       # Dependencias
+└── README.md              # Documentación
+```
 
-Esta API proporciona los servicios necesarios para gestionar las finanzas familiares, incluyendo la creación de familias, miembros, gastos y pagos.
-
-## Requisitos
+## Requisitos del Sistema
 
 - Python 3.8+
-- PostgreSQL
+- PostgreSQL 12+
+- Dependencias listadas en `requirements.txt`
 
-## Instalación
+## Configuración Detallada
 
-1. Clonar el repositorio:
+### Variables de Entorno
 
-```bash
-git clone <url-del-repositorio>
-cd <directorio-del-repositorio>/api
-```
-
-2. Crear un entorno virtual:
-
-```bash
-python -m venv env
-source env/bin/activate  # En Windows: env\Scripts\activate
-```
-
-3. Instalar las dependencias:
-
-```bash
-pip install -r requirements.txt
-```
-
-4. Configurar las variables de entorno:
-
-Crea un archivo `.env` en el directorio `api` con el siguiente contenido:
+Crea un archivo `.env` en el directorio raíz con las siguientes variables:
 
 ```
-# Configuración de la base de datos
+# Base de datos
 DATABASE_URL=postgresql://familyfinance:tu_contraseña_segura@localhost/familyfinance
 
-# Configuración de seguridad
-SECRET_KEY=tu_clave_secreta
+# Seguridad
+SECRET_KEY=tu_clave_secreta_de_al_menos_32_caracteres
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# Configuración de la API
+# API
 API_PORT=8007
 API_HOST=0.0.0.0
 ```
 
-5. Configurar PostgreSQL:
+### Configuración de PostgreSQL
+
+1. Instala PostgreSQL si aún no lo tienes:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install postgresql postgresql-contrib
+   
+   # macOS con Homebrew
+   brew install postgresql
+   ```
+
+2. Inicia el servicio de PostgreSQL:
+   ```bash
+   # Ubuntu/Debian
+   sudo service postgresql start
+   
+   # macOS
+   brew services start postgresql
+   ```
+
+3. Crea la base de datos y el usuario:
+   ```bash
+   # Crear la base de datos
+   createdb familyfinance
+   
+   # Crear un usuario específico para la aplicación
+   psql -U postgres -c "CREATE USER familyfinance WITH PASSWORD 'tu_contraseña_segura';"
+   psql -U postgres -c "ALTER USER familyfinance WITH SUPERUSER;"
+   ```
+
+## Instalación Paso a Paso
+
+1. Clona el repositorio:
+   ```bash
+   git clone https://github.com/Alexmontesino96/FinancialFamilyAPI.git
+   cd FinancialFamilyAPI
+   ```
+
+2. Crea y activa un entorno virtual:
+   ```bash
+   python -m venv env
+   source env/bin/activate  # En Windows: env\Scripts\activate
+   ```
+
+3. Instala las dependencias:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Configura las variables de entorno como se describió anteriormente.
+
+5. Ejecuta la aplicación:
+   ```bash
+   python -m app.main
+   ```
+
+## Pruebas Automatizadas
+
+### Configuración de Pruebas
+
+Las pruebas utilizan una base de datos SQLite en memoria para aislar el entorno de pruebas. La configuración se encuentra en `tests/conftest.py`.
+
+### Ejecución de Pruebas
 
 ```bash
-# Crear la base de datos
-createdb familyfinance
-
-# Crear un usuario específico para la aplicación
-psql -U postgres -c "CREATE USER familyfinance WITH PASSWORD 'tu_contraseña_segura';"
-psql -U postgres -c "ALTER USER familyfinance WITH SUPERUSER;"
-```
-
-## Ejecución
-
-Para ejecutar la API:
-
-```bash
-python run.py
-```
-
-La API estará disponible en `http://localhost:8007`.
-
-## Documentación
-
-La documentación de la API estará disponible en `http://localhost:8007/docs`.
-
-## Testing
-
-La API incluye un conjunto completo de pruebas automatizadas para garantizar su correcto funcionamiento. Las pruebas están implementadas utilizando pytest y cubren los principales endpoints y funcionalidades.
-
-### Requisitos para las pruebas
-
-- pytest
-- pytest-cov (para análisis de cobertura)
-- httpx (requerido por TestClient de FastAPI)
-
-Puedes instalar estas dependencias con:
-
-```bash
-pip install pytest pytest-cov httpx
-```
-
-### Ejecutar las pruebas
-
-Para ejecutar todas las pruebas:
-
-```bash
+# Ejecutar todas las pruebas
 pytest
-```
 
-Para ejecutar las pruebas con información de cobertura:
-
-```bash
+# Ejecutar pruebas con información de cobertura
 pytest --cov=app
-```
 
-Para generar un informe HTML de cobertura:
-
-```bash
+# Generar informe HTML de cobertura
 pytest --cov=app --cov-report=html
 ```
 
-El informe de cobertura estará disponible en el directorio `htmlcov`.
-
-### Estructura de las pruebas
+### Estructura de las Pruebas
 
 - `tests/conftest.py`: Configuración y fixtures para las pruebas
 - `tests/test_auth.py`: Pruebas de autenticación
 - `tests/test_families.py`: Pruebas de operaciones con familias
 - `tests/test_expenses.py`: Pruebas de operaciones con gastos
 
-### Estrategia de pruebas
-
-Las pruebas utilizan una base de datos SQLite en memoria para aislar el entorno de pruebas del entorno de producción. Cada prueba se ejecuta en una transacción independiente que se revierte al finalizar, garantizando que las pruebas no interfieran entre sí.
-
-## Endpoints
+## Referencia de API
 
 ### Autenticación
 
-- `POST /auth/token`: Obtiene un token de acceso.
+| Endpoint | Método | Descripción | Parámetros |
+|----------|--------|-------------|------------|
+| `/auth/token` | POST | Obtiene un token de acceso | `username`: ID de Telegram del usuario |
 
 ### Familias
 
-- `POST /families/`: Crea una nueva familia.
-- `GET /families/{family_id}`: Obtiene información de una familia.
-- `GET /families/{family_id}/members`: Obtiene los miembros de una familia.
-- `POST /families/{family_id}/members`: Añade un miembro a una familia.
-- `GET /families/{family_id}/balances`: Obtiene los balances de una familia.
+| Endpoint | Método | Descripción | Parámetros |
+|----------|--------|-------------|------------|
+| `/families/` | POST | Crea una nueva familia | `name`: Nombre de la familia, `members`: Lista de miembros |
+| `/families/{family_id}` | GET | Obtiene información de una familia | `family_id`: ID de la familia |
+| `/families/{family_id}/members` | GET | Obtiene los miembros de una familia | `family_id`: ID de la familia |
+| `/families/{family_id}/members` | POST | Añade un miembro a una familia | `family_id`: ID de la familia, `member`: Datos del miembro |
+| `/families/{family_id}/balances` | GET | Obtiene los balances de una familia | `family_id`: ID de la familia |
 
 ### Miembros
 
-- `GET /members/{telegram_id}`: Obtiene un miembro por su ID de Telegram.
-- `GET /members/me`: Obtiene el miembro actual.
-- `GET /members/me/balance`: Obtiene el balance del miembro actual.
-- `PUT /members/{member_id}`: Actualiza un miembro.
-- `DELETE /members/{member_id}`: Elimina un miembro.
+| Endpoint | Método | Descripción | Parámetros |
+|----------|--------|-------------|------------|
+| `/members/{telegram_id}` | GET | Obtiene un miembro por su ID de Telegram | `telegram_id`: ID de Telegram |
+| `/members/me` | GET | Obtiene el miembro actual | Requiere token de autenticación |
+| `/members/me/balance` | GET | Obtiene el balance del miembro actual | Requiere token de autenticación |
+| `/members/{member_id}` | PUT | Actualiza un miembro | `member_id`: ID del miembro, `member`: Datos actualizados |
+| `/members/{member_id}` | DELETE | Elimina un miembro | `member_id`: ID del miembro |
 
 ### Gastos
 
-- `POST /expenses/`: Crea un nuevo gasto.
-- `GET /expenses/{expense_id}`: Obtiene un gasto por su ID.
-- `GET /expenses/family/{family_id}`: Obtiene los gastos de una familia.
-- `DELETE /expenses/{expense_id}`: Elimina un gasto.
+| Endpoint | Método | Descripción | Parámetros |
+|----------|--------|-------------|------------|
+| `/expenses/` | POST | Crea un nuevo gasto | `description`, `amount`, `paid_by`, `split_among` |
+| `/expenses/{expense_id}` | GET | Obtiene un gasto por su ID | `expense_id`: ID del gasto |
+| `/expenses/family/{family_id}` | GET | Obtiene los gastos de una familia | `family_id`: ID de la familia |
+| `/expenses/{expense_id}` | DELETE | Elimina un gasto | `expense_id`: ID del gasto |
 
 ### Pagos
 
-- `POST /payments/`: Crea un nuevo pago.
-- `GET /payments/{payment_id}`: Obtiene un pago por su ID.
-- `GET /payments/family/{family_id}`: Obtiene los pagos de una familia.
-- `DELETE /payments/{payment_id}`: Elimina un pago. 
+| Endpoint | Método | Descripción | Parámetros |
+|----------|--------|-------------|------------|
+| `/payments/` | POST | Crea un nuevo pago | `from_member`, `to_member`, `amount` |
+| `/payments/{payment_id}` | GET | Obtiene un pago por su ID | `payment_id`: ID del pago |
+| `/payments/family/{family_id}` | GET | Obtiene los pagos de una familia | `family_id`: ID de la familia |
+| `/payments/{payment_id}` | DELETE | Elimina un pago | `payment_id`: ID del pago |
+
+## Modelos de Datos
+
+### Family
+- `id`: String (UUID)
+- `name`: String
+- `created_at`: DateTime
+- `members`: Relación con Member
+
+### Member
+- `id`: Integer
+- `name`: String
+- `telegram_id`: String
+- `family_id`: String (UUID)
+- `created_at`: DateTime
+
+### Expense
+- `id`: String (UUID)
+- `description`: String
+- `amount`: Float
+- `paid_by`: Integer (ID de Member)
+- `family_id`: String (UUID)
+- `created_at`: DateTime
+- `split_among`: Relación con Member
+
+### Payment
+- `id`: String (UUID)
+- `from_member_id`: Integer (ID de Member)
+- `to_member_id`: Integer (ID de Member)
+- `amount`: Float
+- `family_id`: String (UUID)
+- `created_at`: DateTime
+
+## Seguridad
+
+La API utiliza autenticación basada en tokens JWT. Cada solicitud a un endpoint protegido debe incluir un token válido en el encabezado de autorización:
+
+```
+Authorization: Bearer {token}
+```
+
+Los tokens se obtienen mediante el endpoint `/auth/token` proporcionando el ID de Telegram del usuario. 

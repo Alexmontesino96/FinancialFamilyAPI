@@ -1,27 +1,33 @@
 # FinancialFamilyAPI
 
-API para la gestión de finanzas compartidas entre miembros de una familia o grupo.
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-CC2927?style=for-the-badge&logo=sqlalchemy&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-## Descripción
+Una API robusta para la gestión de finanzas compartidas entre miembros de una familia o grupo de amigos.
 
-FinancialFamilyAPI es una solución completa para la gestión de finanzas compartidas. Diseñada con FastAPI y PostgreSQL, esta API proporciona una interfaz robusta y eficiente para:
+## 📋 Descripción
 
-- **Gestión de grupos familiares**: Crear y administrar grupos familiares o de amigos que comparten gastos.
-- **Registro de miembros**: Añadir miembros a los grupos y gestionar sus perfiles.
-- **Control de gastos compartidos**: Registrar gastos y especificar cómo se dividen entre los miembros.
-- **Seguimiento de pagos**: Registrar pagos entre miembros para saldar deudas.
-- **Cálculo de balances**: Obtener en tiempo real el estado de cuentas de cada miembro.
+FinancialFamilyAPI es una solución completa para la gestión de finanzas compartidas, diseñada para simplificar el seguimiento de gastos y deudas entre miembros de un grupo. La API proporciona:
 
-## Tecnologías
+- **Gestión de grupos familiares**: Creación y administración de grupos que comparten gastos.
+- **Registro de miembros**: Gestión de perfiles de usuarios dentro de cada grupo.
+- **Control de gastos compartidos**: Registro de gastos con división personalizada entre miembros.
+- **Seguimiento de pagos**: Registro de transacciones entre miembros para saldar deudas.
+- **Cálculo de balances**: Generación en tiempo real del estado de cuentas de cada miembro.
 
-- **FastAPI**: Framework web moderno y de alto rendimiento
-- **PostgreSQL**: Base de datos relacional robusta
-- **SQLAlchemy**: ORM para interactuar con la base de datos
+## 🚀 Tecnologías
+
+- **FastAPI**: Framework web de alto rendimiento con validación automática
+- **PostgreSQL**: Base de datos relacional para almacenamiento persistente
+- **SQLAlchemy**: ORM para interacción con la base de datos
 - **Pydantic**: Validación de datos y serialización
 - **JWT**: Autenticación segura mediante tokens
-- **Pytest**: Framework de pruebas automatizadas
+- **Pytest**: Framework para pruebas automatizadas
 
-## Instalación
+## ⚙️ Instalación
 
 ```bash
 # Clonar el repositorio
@@ -35,15 +41,50 @@ source env/bin/activate  # En Windows: env\Scripts\activate
 # Instalar dependencias
 pip install -r requirements.txt
 
-# Configurar base de datos
-# Ver instrucciones detalladas en README_ORIGINAL.md
+# Configurar base de datos PostgreSQL
+# Ver instrucciones detalladas en la sección de configuración
 ```
 
-## Documentación
+## 🔧 Configuración
 
-La documentación completa está disponible en el archivo [README_ORIGINAL.md](README_ORIGINAL.md).
+1. Crea un archivo `.env` en el directorio raíz con el siguiente contenido:
 
-## Pruebas
+```
+# Configuración de la base de datos
+DATABASE_URL=postgresql://usuario:contraseña@localhost/familyfinance
+
+# Configuración de seguridad
+SECRET_KEY=tu_clave_secreta
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Configuración de la API
+API_PORT=8007
+API_HOST=0.0.0.0
+```
+
+2. Configura PostgreSQL:
+
+```bash
+# Crear la base de datos
+createdb familyfinance
+
+# Crear un usuario específico para la aplicación
+psql -U postgres -c "CREATE USER familyfinance WITH PASSWORD 'tu_contraseña_segura';"
+psql -U postgres -c "ALTER USER familyfinance WITH SUPERUSER;"
+```
+
+## 🏃‍♂️ Ejecución
+
+```bash
+# Iniciar la API
+python -m app.main
+
+# La API estará disponible en http://localhost:8007
+# La documentación interactiva estará en http://localhost:8007/docs
+```
+
+## 🧪 Pruebas
 
 El proyecto incluye pruebas automatizadas para garantizar su correcto funcionamiento:
 
@@ -53,20 +94,29 @@ pytest
 
 # Ejecutar pruebas con información de cobertura
 pytest --cov=app
+
+# Generar informe HTML de cobertura
+pytest --cov=app --cov-report=html
 ```
 
-## Autor
+## 📚 Documentación
+
+La documentación completa de la API está disponible en:
+
+- **Swagger UI**: http://localhost:8007/docs
+- **ReDoc**: http://localhost:8007/redoc
+
+Para información técnica más detallada, consulte el archivo [README_ORIGINAL.md](README_ORIGINAL.md).
+
+## 👨‍💻 Autor
 
 **Alex Montesino** - [@Alexmontesino96](https://github.com/Alexmontesino96)
 
-Si te gusta este proyecto, no dudes en seguirme en GitHub para ver más proyectos similares.
-
-## Licencia
+## 📄 Licencia
 
 Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
 
-## Contacto
+## 📞 Contacto
 
-Para cualquier consulta o sugerencia, por favor:
 - Abre un [issue](https://github.com/Alexmontesino96/FinancialFamilyAPI/issues) en este repositorio
 - Contacta directamente a través de GitHub: [@Alexmontesino96](https://github.com/Alexmontesino96) 
