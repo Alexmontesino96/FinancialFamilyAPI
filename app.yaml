@@ -1,0 +1,23 @@
+name: family-finance-api
+region: nyc
+services:
+  - name: api
+    github:
+      branch: main
+      deploy_on_push: true
+    build_command: pip install -r requirements.txt
+    run_command: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    http_port: 8000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: SECRET_KEY
+        value: "${SECRET_KEY}"
+        type: SECRET
+      - key: ALGORITHM
+        value: "HS256"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: DATABASE_URL
+        value: "${DATABASE_URL}"
+        type: SECRET 
