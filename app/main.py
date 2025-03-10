@@ -13,11 +13,14 @@ The API provides endpoints for managing family finances, including:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError, HTTPException
 import os
 from dotenv import load_dotenv
 
 from app.models.database import engine, Base
-from app.routers import families, members, expenses, payments, auth
+from app.routers import families, members, expenses, payments, auth, test_errors
+from app.middlewares.error_handler import ErrorHandler
+from app.middlewares.http_exception_handler import http_exception_handler, validation_exception_handler
 
 # Load environment variables from .env file
 load_dotenv()
@@ -34,6 +37,10 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json"
 )
+
+# Add exception handlers
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 # Configure Cross-Origin Resource Sharing (CORS)
 # This allows the API to be accessed from different domains/origins
@@ -52,12 +59,16 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+# Add error handling middleware
+app.add_middleware(ErrorHandler)
+
 # Register API routers for different resource endpoints
 app.include_router(auth.router)
 app.include_router(families.router)
 app.include_router(members.router)
 app.include_router(expenses.router)
 app.include_router(payments.router)
+app.include_router(test_errors.router)
 
 @app.get("/")
 def read_root():
