@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 from app.models.database import engine, Base
 from app.routers import families, members, expenses, payments, auth, test_errors
-from app.middlewares.error_handler import ErrorHandler
+from app.middlewares.error_handler import ErrorHandlerMiddleware
 from app.middlewares.http_exception_handler import http_exception_handler, validation_exception_handler
 
 # Load environment variables from .env file
@@ -60,7 +60,7 @@ app.add_middleware(
 )
 
 # Add error handling middleware
-app.add_middleware(ErrorHandler)
+app.add_middleware(ErrorHandlerMiddleware)
 
 # Register API routers for different resource endpoints
 app.include_router(auth.router)

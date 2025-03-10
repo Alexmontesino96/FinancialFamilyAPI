@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from typing import Dict, Any
 
-from app.middlewares.error_handler import ErrorHandler
+from app.middlewares.error_handler import ErrorHandlerMiddleware
 from app.middlewares.http_exception_handler import http_exception_handler, validation_exception_handler
 
 # Initialize FastAPI application
@@ -19,9 +19,6 @@ app = FastAPI(
     description="API for testing error handling middleware",
     version="1.0.0"
 )
-
-# Add error handling middleware
-app.add_middleware(ErrorHandler)
 
 # Add exception handlers
 app.add_exception_handler(HTTPException, http_exception_handler)
@@ -35,6 +32,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add error handling middleware
+app.add_middleware(ErrorHandlerMiddleware)
 
 @app.get("/")
 def read_root():

@@ -5,13 +5,14 @@ This module provides middleware for handling exceptions in the API.
 It catches exceptions and returns appropriate HTTP responses.
 """
 
-from fastapi import Request, status
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from sqlalchemy.exc import SQLAlchemyError
-from typing import Callable, Dict, Any, Union
+from typing import Dict, Any, Union
 import logging
 import traceback
-import json
 
 # Configure logging
 logging.basicConfig(
@@ -20,7 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class ErrorHandler:
+class ErrorHandlerMiddleware(BaseHTTPMiddleware):
     """
     Middleware for handling exceptions in the API.
     
@@ -28,18 +29,16 @@ class ErrorHandler:
     and returns appropriate HTTP responses with error details.
     """
     
-    def __init__(self, app):
+    def __init__(self, app: FastAPI) -> None:
         """
         Initialize the middleware.
         
         Args:
             app: The FastAPI application
         """
-        self.app = app
+        super().__init__(app)
     
-    async def __call__(
-        self, request: Request, call_next: Callable
-    ) -> Union[JSONResponse, Any]:
+    async def dispatch(self, request: Request, call_next) -> Response:
         """
         Process the request and handle any exceptions.
         
@@ -51,7 +50,8 @@ class ErrorHandler:
             Response: Either the normal response or an error response
         """
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            return response
         except SQLAlchemyError as e:
             # Database errors
             return self._handle_database_error(e, request)
