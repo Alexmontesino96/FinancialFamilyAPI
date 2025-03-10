@@ -3,30 +3,47 @@ from app.models.models import Expense, Member
 from app.models.schemas import ExpenseCreate, ExpenseUpdate
 
 class ExpenseService:
-    """Servicio para manejar los gastos."""
+    """
+    Service for managing expenses.
+    
+    This class provides methods for creating, retrieving, updating, and deleting
+    expenses in the database, as well as retrieving expenses by member or family.
+    """
     
     @staticmethod
     def create_expense(db: Session, expense: ExpenseCreate):
-        """Crea un nuevo gasto."""
-        # Crear el gasto sin el campo split_among primero
+        """
+        Create a new expense.
+        
+        Args:
+            db: Database session
+            expense: Expense data to create
+            
+        Returns:
+            Expense: The created expense
+            
+        Note:
+            If split_among is not specified, the expense is split among all family members.
+        """
+        # Create the expense without the split_among field first
         db_expense = Expense(
             description=expense.description,
             amount=expense.amount,
             paid_by=expense.paid_by
         )
         
-        # Obtener la familia del miembro que paga
+        # Get the family of the paying member
         payer = db.query(Member).filter(Member.id == expense.paid_by).first()
         if payer:
             db_expense.family_id = payer.family_id
             
-            # Si no se especifica split_among, dividir entre todos los miembros de la familia
+            # If split_among is not specified, split among all family members
             if not expense.split_among:
-                # Obtener todos los miembros de la familia
+                # Get all family members
                 family_members = db.query(Member).filter(Member.family_id == payer.family_id).all()
                 db_expense.split_among = family_members
             else:
-                # Usar los miembros especificados
+                # Use the specified members
                 members = db.query(Member).filter(Member.id.in_(expense.split_among)).all()
                 db_expense.split_among = members
         
@@ -37,31 +54,72 @@ class ExpenseService:
     
     @staticmethod
     def get_expense(db: Session, expense_id: str):
-        """Obtiene un gasto por su ID."""
+        """
+        Get an expense by its ID.
+        
+        Args:
+            db: Database session
+            expense_id: ID of the expense to retrieve
+            
+        Returns:
+            Expense: The requested expense or None if not found
+        """
         return db.query(Expense).filter(Expense.id == expense_id).first()
     
     @staticmethod
     def get_expenses_by_member(db: Session, member_id: int):
-        """Obtiene los gastos pagados por un miembro."""
+        """
+        Get expenses paid by a member.
+        
+        Args:
+            db: Database session
+            member_id: ID of the member to get expenses for
+            
+        Returns:
+            List[Expense]: List of expenses paid by the member
+        """
         return db.query(Expense).filter(Expense.paid_by == member_id).all()
     
     @staticmethod
     def get_expenses_by_family(db: Session, family_id: str):
-        """Obtiene los gastos de una familia."""
-        # Obtener los IDs de los miembros de la familia
+        """
+        Get expenses for a family.
+        
+        Args:
+            db: Database session
+            family_id: ID of the family to get expenses for
+            
+        Returns:
+            List[Expense]: List of expenses for the family
+        """
+        # Get the IDs of the family members
         member_ids = [m.id for m in db.query(Member).filter(Member.family_id == family_id).all()]
         
-        # Obtener los gastos donde el pagador es un miembro de la familia
+        # Get expenses where the payer is a family member
         return db.query(Expense).filter(Expense.paid_by.in_(member_ids)).all()
     
     @staticmethod
     def update_expense(db: Session, expense_id: str, expense_update: ExpenseUpdate):
-        """Actualiza un gasto existente."""
+        """
+        Update an existing expense.
+        
+        Args:
+            db: Database session
+            expense_id: ID of the expense to update
+            expense_update: Updated expense data
+            
+        Returns:
+            Expense: The updated expense or None if not found
+            
+        Note:
+            If split_among is set to an empty list, the expense is split among all family members.
+            If the payer changes, the family_id is updated to match the new payer's family.
+        """
         db_expense = db.query(Expense).filter(Expense.id == expense_id).first()
         if not db_expense:
             return None
         
-        # Actualizar los campos proporcionados
+        # Update the provided fields
         if expense_update.description is not None:
             db_expense.description = expense_update.description
         
@@ -71,19 +129,19 @@ class ExpenseService:
         if expense_update.paid_by is not None:
             db_expense.paid_by = expense_update.paid_by
             
-            # Actualizar la familia si cambia el pagador
+            # Update the family if the payer changes
             payer = db.query(Member).filter(Member.id == expense_update.paid_by).first()
             if payer:
                 db_expense.family_id = payer.family_id
         
-        # Actualizar split_among si se proporciona
+        # Update split_among if provided
         if expense_update.split_among is not None:
             if not expense_update.split_among:
-                # Si la lista está vacía, dividir entre todos los miembros de la familia
+                # If the list is empty, split among all family members
                 family_members = db.query(Member).filter(Member.family_id == db_expense.family_id).all()
                 db_expense.split_among = family_members
             else:
-                # Usar los miembros especificados
+                # Use the specified members
                 members = db.query(Member).filter(Member.id.in_(expense_update.split_among)).all()
                 db_expense.split_among = members
         
@@ -93,7 +151,16 @@ class ExpenseService:
     
     @staticmethod
     def delete_expense(db: Session, expense_id: str):
-        """Elimina un gasto."""
+        """
+        Delete an expense.
+        
+        Args:
+            db: Database session
+            expense_id: ID of the expense to delete
+            
+        Returns:
+            Expense: The deleted expense or None if not found
+        """
         db_expense = db.query(Expense).filter(Expense.id == expense_id).first()
         if db_expense:
             db.delete(db_expense)

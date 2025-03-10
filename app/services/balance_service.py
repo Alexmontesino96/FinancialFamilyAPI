@@ -4,16 +4,33 @@ from app.models.schemas import MemberBalance, DebtDetail, CreditDetail
 from typing import List, Dict
 
 class BalanceService:
-    """Servicio para calcular los balances de una familia."""
+    """
+    Service for calculating family balances.
+    
+    This class provides methods for calculating the financial balances of family members,
+    taking into account expenses and payments.
+    """
     
     @staticmethod
     def calculate_family_balances(db: Session, family_id: str) -> List[MemberBalance]:
-        """Calcula los balances de todos los miembros de una familia."""
-        # Obtener todos los miembros de la familia
+        """
+        Calculate the balances of all members in a family.
+        
+        This method calculates how much each member owes or is owed by other members,
+        based on expenses and payments.
+        
+        Args:
+            db: Database session
+            family_id: ID of the family to calculate balances for
+            
+        Returns:
+            List[MemberBalance]: List of member balances with detailed debt and credit information
+        """
+        # Get all family members
         members = db.query(Member).filter(Member.family_id == family_id).all()
         member_ids = [m.id for m in members]
         
-        # Inicializar el diccionario de balances
+        # Initialize the balance dictionary
         balances: Dict[int, Dict] = {}
         for member in members:
             balances[member.id] = {
@@ -26,50 +43,50 @@ class BalanceService:
                 "credits": []
             }
         
-        # Procesar los gastos
+        # Process expenses
         expenses = db.query(Expense).filter(Expense.paid_by.in_(member_ids)).all()
         for expense in expenses:
-            # Obtener el miembro que pagó
+            # Get the member who paid
             payer_id = expense.paid_by
             
-            # Obtener los miembros entre los que se divide el gasto
+            # Get the members among whom the expense is split
             split_members = expense.split_among
             
-            # Si no hay miembros específicos, dividir entre todos
+            # If no specific members, split among all
             if not split_members:
                 split_members = members
             
-            # Calcular el monto por miembro
+            # Calculate the amount per member
             amount_per_member = expense.amount / len(split_members)
             
-            # Actualizar los balances
+            # Update the balances
             for member in split_members:
-                # Si el miembro es el pagador, no se debe a sí mismo
+                # If the member is the payer, they don't owe themselves
                 if member.id == payer_id:
                     continue
                 
-                # El miembro debe al pagador
+                # The member owes the payer
                 balances[member.id]["total_debt"] += amount_per_member
                 balances[payer_id]["total_owed"] += amount_per_member
                 
-                # Añadir la deuda a la lista de deudas del miembro
+                # Add the debt to the member's debt list
                 balances[member.id]["debts"].append({
                     "to": str(payer_id),
                     "amount": amount_per_member
                 })
                 
-                # Añadir el crédito a la lista de créditos del pagador
+                # Add the credit to the payer's credit list
                 balances[payer_id]["credits"].append({
                     "from": str(member.id),
                     "amount": amount_per_member
                 })
         
-        # Procesar los pagos
-        # Usar consultas separadas para from_member y to_member para evitar el uso de in_() en relaciones
+        # Process payments
+        # Use separate queries for from_member and to_member to avoid using in_() on relationships
         payments_from = db.query(Payment).filter(Payment.from_member_id.in_(member_ids)).all()
         payments_to = db.query(Payment).filter(Payment.to_member_id.in_(member_ids)).all()
         
-        # Combinar los resultados
+        # Combine the results
         payments = payments_from + payments_to
         
         for payment in payments:
@@ -77,17 +94,17 @@ class BalanceService:
             to_member_id = payment.to_member_id
             amount = payment.amount
             
-            # Verificar que ambos miembros pertenecen a la familia
+            # Verify that both members belong to the family
             if from_member_id in balances and to_member_id in balances:
-                # Actualizar los balances
+                # Update the balances
                 balances[from_member_id]["total_debt"] -= amount
                 balances[to_member_id]["total_owed"] -= amount
         
-        # Calcular el balance neto para cada miembro
+        # Calculate the net balance for each member
         for member_id, balance in balances.items():
             balance["net_balance"] = balance["total_owed"] - balance["total_debt"]
         
-        # Convertir a lista de objetos MemberBalance
+        # Convert to a list of MemberBalance objects
         result = []
         for member_id, balance_data in balances.items():
             member_balance = MemberBalance(
@@ -105,11 +122,21 @@ class BalanceService:
     
     @staticmethod
     def get_member_balance(db: Session, family_id: str, member_id: int) -> MemberBalance:
-        """Obtiene el balance de un miembro específico."""
-        # Calcular los balances de toda la familia
+        """
+        Get the balance of a specific member.
+        
+        Args:
+            db: Database session
+            family_id: ID of the family the member belongs to
+            member_id: ID of the member to get the balance for
+            
+        Returns:
+            MemberBalance: The member's balance or None if not found
+        """
+        # Calculate the balances of the entire family
         family_balances = BalanceService.calculate_family_balances(db, family_id)
         
-        # Buscar el balance del miembro específico
+        # Find the balance of the specific member
         for balance in family_balances:
             if balance.member_id == str(member_id):
                 return balance

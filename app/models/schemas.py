@@ -1,28 +1,79 @@
+"""
+Pydantic Schemas Module
+
+This module defines the Pydantic models used for data validation, serialization,
+and documentation. These schemas define the structure of request and response data
+for the API endpoints.
+
+The schemas are organized by resource type (auth, members, families, expenses, payments)
+and include base models, creation models, update models, and response models.
+"""
+
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
-# Esquemas para autenticación
+# Authentication schemas
 class Token(BaseModel):
+    """
+    Token schema for authentication responses.
+    
+    Attributes:
+        access_token (str): JWT access token
+        token_type (str): Type of token (e.g., "bearer")
+    """
     access_token: str
     token_type: str
 
 class TokenData(BaseModel):
+    """
+    Token data schema for decoded JWT payload.
+    
+    Attributes:
+        username (Optional[str]): Username extracted from the token
+    """
     username: Optional[str] = None
 
-# Esquemas para miembros
+# Member schemas
 class MemberBase(BaseModel):
+    """
+    Base schema for member data.
+    
+    Attributes:
+        name (str): Name of the member
+        telegram_id (str): Telegram ID used for authentication
+    """
     name: str
     telegram_id: str
 
 class MemberCreate(MemberBase):
+    """
+    Schema for creating a new member.
+    Inherits all fields from MemberBase.
+    """
     pass
 
 class MemberUpdate(BaseModel):
+    """
+    Schema for updating an existing member.
+    All fields are optional to allow partial updates.
+    
+    Attributes:
+        name (Optional[str]): New name for the member
+        telegram_id (Optional[str]): New Telegram ID for the member
+    """
     name: Optional[str] = None
     telegram_id: Optional[str] = None
 
 class Member(MemberBase):
+    """
+    Schema for member responses.
+    
+    Attributes:
+        id (int): Unique identifier for the member
+        family_id (str): ID of the family this member belongs to
+        created_at (datetime): When the member was created
+    """
     id: int
     family_id: str
     created_at: datetime
@@ -30,14 +81,34 @@ class Member(MemberBase):
     class Config:
         from_attributes = True
 
-# Esquemas para familias
+# Family schemas
 class FamilyBase(BaseModel):
+    """
+    Base schema for family data.
+    
+    Attributes:
+        name (str): Name of the family
+    """
     name: str
 
 class FamilyCreate(FamilyBase):
+    """
+    Schema for creating a new family.
+    
+    Attributes:
+        members (List[MemberCreate]): Initial members of the family
+    """
     members: List[MemberCreate]
 
 class Family(FamilyBase):
+    """
+    Schema for family responses.
+    
+    Attributes:
+        id (str): Unique identifier for the family
+        created_at (datetime): When the family was created
+        members (List[Member]): Members belonging to this family
+    """
     id: str
     created_at: datetime
     members: List[Member] = []
@@ -45,22 +116,55 @@ class Family(FamilyBase):
     class Config:
         from_attributes = True
 
-# Esquemas para gastos
+# Expense schemas
 class ExpenseBase(BaseModel):
+    """
+    Base schema for expense data.
+    
+    Attributes:
+        description (str): Description of what the expense was for
+        amount (float): The monetary amount of the expense
+        paid_by (int): ID of the member who paid for the expense
+    """
     description: str
     amount: float
     paid_by: int
 
 class ExpenseCreate(ExpenseBase):
+    """
+    Schema for creating a new expense.
+    
+    Attributes:
+        split_among (Optional[List[int]]): IDs of members who share this expense
+    """
     split_among: Optional[List[int]] = None
 
 class ExpenseUpdate(BaseModel):
+    """
+    Schema for updating an existing expense.
+    All fields are optional to allow partial updates.
+    
+    Attributes:
+        description (Optional[str]): New description for the expense
+        amount (Optional[float]): New amount for the expense
+        paid_by (Optional[int]): New member ID who paid for the expense
+        split_among (Optional[List[int]]): New list of member IDs who share this expense
+    """
     description: Optional[str] = None
     amount: Optional[float] = None
     paid_by: Optional[int] = None
     split_among: Optional[List[int]] = None
 
 class Expense(ExpenseBase):
+    """
+    Schema for expense responses.
+    
+    Attributes:
+        id (str): Unique identifier for the expense
+        family_id (str): ID of the family this expense belongs to
+        created_at (datetime): When the expense was created
+        split_among (List[Member]): Members who share this expense
+    """
     id: str
     family_id: str
     created_at: datetime
@@ -69,16 +173,36 @@ class Expense(ExpenseBase):
     class Config:
         from_attributes = True
 
-# Esquemas para pagos
+# Payment schemas
 class PaymentBase(BaseModel):
+    """
+    Base schema for payment data.
+    
+    Attributes:
+        from_member (int): ID of the member sending the payment
+        to_member (int): ID of the member receiving the payment
+        amount (float): The monetary amount of the payment
+    """
     from_member: int
     to_member: int
     amount: float
 
 class PaymentCreate(PaymentBase):
+    """
+    Schema for creating a new payment.
+    Inherits all fields from PaymentBase.
+    """
     pass
 
 class Payment(PaymentBase):
+    """
+    Schema for payment responses.
+    
+    Attributes:
+        id (str): Unique identifier for the payment
+        family_id (str): ID of the family this payment belongs to
+        created_at (datetime): When the payment was created
+    """
     id: str
     family_id: str
     created_at: datetime
@@ -86,16 +210,42 @@ class Payment(PaymentBase):
     class Config:
         from_attributes = True
 
-# Esquemas para balances
+# Balance schemas
 class DebtDetail(BaseModel):
+    """
+    Schema for debt details in balance calculations.
+    
+    Attributes:
+        to (str): Name of the member who is owed money
+        amount (float): Amount of money owed
+    """
     to: str
     amount: float
 
 class CreditDetail(BaseModel):
+    """
+    Schema for credit details in balance calculations.
+    
+    Attributes:
+        from_ (str): Name of the member who owes money
+        amount (float): Amount of money owed
+    """
     from_: str = Field(..., alias="from")
     amount: float
 
 class MemberBalance(BaseModel):
+    """
+    Schema for member balance calculations.
+    
+    Attributes:
+        member_id (str): ID of the member
+        name (str): Name of the member
+        total_debt (float): Total amount this member owes to others
+        total_owed (float): Total amount others owe to this member
+        net_balance (float): Net balance (positive means others owe this member)
+        debts (List[DebtDetail]): Detailed breakdown of debts to other members
+        credits (List[CreditDetail]): Detailed breakdown of credits from other members
+    """
     member_id: str
     name: str
     total_debt: float

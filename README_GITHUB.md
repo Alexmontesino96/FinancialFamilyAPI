@@ -25,7 +25,7 @@ FinancialFamilyAPI es una solución completa para la gestión de finanzas compar
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/USERNAME/FinancialFamilyAPI.git
+git clone https://github.com/Alexmontesino96/FinancialFamilyAPI.git
 cd FinancialFamilyAPI
 
 # Crear entorno virtual

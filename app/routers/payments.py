@@ -1,3 +1,11 @@
+"""
+Payments Router
+
+This module defines the endpoints for managing payments in the API.
+It provides routes for creating, retrieving, and deleting payments,
+as well as getting payments by member or family.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -16,11 +24,24 @@ router = APIRouter(
 @router.post("/", response_model=Payment, status_code=status.HTTP_201_CREATED)
 def create_payment(
     payment: PaymentCreate,
-    telegram_id: Optional[str] = Query(None, description="ID de Telegram del usuario"),
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
-    """Crea un nuevo pago."""
-    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la misma familia que los miembros del pago
+    """
+    Create a new payment.
+    
+    Args:
+        payment: Payment data to create
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        Payment: The created payment
+        
+    Raises:
+        HTTPException: If the user doesn't have permission to create payments for these members
+    """
+    # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
     if telegram_id:
         requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
         from_member = MemberService.get_member(db, payment.from_member)
@@ -29,7 +50,7 @@ def create_payment(
         if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id or from_member.family_id != to_member.family_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para crear pagos para estos miembros"
+                detail="You don't have permission to create payments for these members"
             )
     
     return PaymentService.create_payment(db, payment)
@@ -37,18 +58,31 @@ def create_payment(
 @router.get("/{payment_id}", response_model=Payment)
 def get_payment(
     payment_id: str,
-    telegram_id: Optional[str] = Query(None, description="ID de Telegram del usuario"),
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
-    """Obtiene un pago por su ID."""
+    """
+    Get a payment by its ID.
+    
+    Args:
+        payment_id: ID of the payment to retrieve
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        Payment: The requested payment
+        
+    Raises:
+        HTTPException: If the payment is not found or the user doesn't have permission to view it
+    """
     payment = PaymentService.get_payment(db, payment_id)
     if not payment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Pago no encontrado"
+            detail="Payment not found"
         )
     
-    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la misma familia que los miembros del pago
+    # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
     if telegram_id:
         requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
         from_member = MemberService.get_member(db, payment.from_member)
@@ -57,7 +91,7 @@ def get_payment(
         if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para ver este pago"
+                detail="You don't have permission to view this payment"
             )
     
     return payment
@@ -65,25 +99,38 @@ def get_payment(
 @router.get("/member/{member_id}", response_model=List[Payment])
 def get_member_payments(
     member_id: int,
-    telegram_id: Optional[str] = Query(None, description="ID de Telegram del usuario"),
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
-    """Obtiene los pagos de un miembro."""
+    """
+    Get payments for a specific member.
+    
+    Args:
+        member_id: ID of the member to get payments for
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        List[Payment]: List of payments involving the member
+        
+    Raises:
+        HTTPException: If the member is not found or the user doesn't have permission to view the payments
+    """
     member = MemberService.get_member(db, member_id)
     if not member:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Miembro no encontrado"
+            detail="Member not found"
         )
     
-    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la misma familia
+    # If a telegram_id is provided, verify that the user belongs to the same family
     if telegram_id:
         requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
         
         if not requesting_member or requesting_member.family_id != member.family_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para ver los pagos de este miembro"
+                detail="You don't have permission to view this member's payments"
             )
     
     return PaymentService.get_payments_by_member(db, member_id)
@@ -91,18 +138,31 @@ def get_member_payments(
 @router.get("/family/{family_id}", response_model=List[Payment])
 def get_family_payments(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="ID de Telegram del usuario"),
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
-    """Obtiene los pagos de una familia."""
-    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la familia
+    """
+    Get payments for a specific family.
+    
+    Args:
+        family_id: ID of the family to get payments for
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        List[Payment]: List of payments for the family
+        
+    Raises:
+        HTTPException: If the user doesn't have permission to view the family's payments
+    """
+    # If a telegram_id is provided, verify that the user belongs to the family
     if telegram_id:
         member = MemberService.get_member_by_telegram_id(db, telegram_id)
         
         if not member or member.family_id != family_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para ver los pagos de esta familia"
+                detail="You don't have permission to view this family's payments"
             )
     
     return PaymentService.get_payments_by_family(db, family_id)
@@ -110,18 +170,31 @@ def get_family_payments(
 @router.delete("/{payment_id}", response_model=Payment)
 def delete_payment(
     payment_id: str,
-    telegram_id: Optional[str] = Query(None, description="ID de Telegram del usuario"),
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
-    """Elimina un pago."""
+    """
+    Delete a payment.
+    
+    Args:
+        payment_id: ID of the payment to delete
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        Payment: The deleted payment
+        
+    Raises:
+        HTTPException: If the payment is not found or the user doesn't have permission to delete it
+    """
     payment = PaymentService.get_payment(db, payment_id)
     if not payment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Pago no encontrado"
+            detail="Payment not found"
         )
     
-    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la misma familia que los miembros del pago
+    # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
     if telegram_id:
         requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
         from_member = MemberService.get_member(db, payment.from_member)
@@ -130,7 +203,7 @@ def delete_payment(
         if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para eliminar este pago"
+                detail="You don't have permission to delete this payment"
             )
     
     return PaymentService.delete_payment(db, payment_id) 
