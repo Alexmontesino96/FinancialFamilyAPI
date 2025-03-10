@@ -14,16 +14,29 @@ The API provides endpoints for managing family finances, including:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError, HTTPException
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 import os
+import logging
+import traceback
 from dotenv import load_dotenv
 
 from app.models.database import engine, Base
 from app.routers import families, members, expenses, payments, auth, test_errors
-from app.middlewares.error_handler import ErrorHandlerMiddleware
 from app.middlewares.http_exception_handler import http_exception_handler, validation_exception_handler
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Determine if we're in debug mode
+DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
 # Create database tables if they don't exist
 Base.metadata.create_all(bind=engine)
@@ -38,9 +51,98 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
+# Set debug mode
+app.debug = DEBUG
+logger.info(f"Application running in {'DEBUG' if DEBUG else 'PRODUCTION'} mode")
+
 # Add exception handlers
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(request, exc):
+    logger.error(f"Database error: {str(exc)}")
+    logger.error(f"Request path: {request.url.path}")
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "message": "Database error occurred",
+                "type": "database_error",
+                "status_code": 500
+            }
+        }
+    )
+
+@app.exception_handler(ValueError)
+async def value_error_exception_handler(request, exc):
+    logger.warning(f"Value error: {str(exc)}")
+    logger.warning(f"Request path: {request.url.path}")
+    
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": {
+                "message": str(exc),
+                "type": "value_error",
+                "status_code": 400
+            }
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """
+    Manejador global de excepciones no capturadas.
+    
+    Este manejador captura cualquier excepción no manejada por otros manejadores
+    específicos, registra información detallada para depuración y devuelve una
+    respuesta JSON estructurada.
+    
+    Args:
+        request: La solicitud HTTP que generó la excepción
+        exc: La excepción que se produjo
+        
+    Returns:
+        JSONResponse: Una respuesta JSON con información sobre el error
+    """
+    # Registrar información detallada del error
+    logger.error(f"Unexpected error: {str(exc)}")
+    logger.error(f"Request path: {request.url.path}")
+    logger.error(traceback.format_exc())
+    
+    # Registrar información de la solicitud para depuración
+    logger.error(f"Request method: {request.method}")
+    logger.error(f"Request headers: {request.headers}")
+    
+    # Registrar información adicional si está disponible
+    if hasattr(request, 'query_params'):
+        logger.error(f"Query params: {request.query_params}")
+    
+    if hasattr(request, 'path_params'):
+        logger.error(f"Path params: {request.path_params}")
+    
+    try:
+        # Intentar obtener el cuerpo de la solicitud si es posible
+        body = await request.body()
+        if body:
+            logger.error(f"Request body: {body.decode('utf-8', errors='replace')}")
+    except Exception as body_err:
+        logger.error(f"Could not read request body: {str(body_err)}")
+    
+    # Devolver una respuesta JSON estructurada
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "message": "An unexpected error occurred",
+                "type": "internal_server_error",
+                "status_code": 500,
+                "error_details": str(exc) if app.debug else None
+            }
+        }
+    )
 
 # Configure Cross-Origin Resource Sharing (CORS)
 # This allows the API to be accessed from different domains/origins
@@ -58,9 +160,6 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
 )
-
-# Add error handling middleware
-app.add_middleware(ErrorHandlerMiddleware)
 
 # Register API routers for different resource endpoints
 app.include_router(auth.router)

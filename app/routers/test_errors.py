@@ -83,4 +83,33 @@ def test_success() -> Dict[str, Any]:
     Returns:
         Dict: A success message
     """
-    return {"message": "This is a successful response"} 
+    return {"message": "This is a successful response"}
+
+@router.get("/complex-error")
+def test_complex_error():
+    """
+    Test complex error handling that might crash the server.
+    
+    Raises:
+        Exception: A more complex error with nested information
+    """
+    # Crear una estructura de datos compleja
+    complex_data = {
+        "nested": {
+            "data": [1, 2, 3],
+            "function": lambda x: x*2  # Esto no es serializable
+        }
+    }
+    
+    # Intentar algo que causará un error
+    class CustomError(Exception):
+        def __init__(self, message, data):
+            self.message = message
+            self.data = data
+            super().__init__(self.message)
+    
+    # Lanzar un error personalizado con datos complejos
+    raise CustomError(
+        "This is a complex error that might crash the server",
+        complex_data
+    ) 
