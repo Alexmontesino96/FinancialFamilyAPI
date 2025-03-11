@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models.models import Payment, Member
 from app.models.schemas import PaymentCreate
+from fastapi import HTTPException, status
 
 class PaymentService:
     """
@@ -26,6 +27,65 @@ class PaymentService:
         Note:
             If family_id is not provided, it is automatically set to the family of the paying member.
         """
+        # Validate that payment amount doesn't exceed the debt
+        from app.services.balance_service import BalanceService
+        
+        # Get the family if not provided
+        if not family_id:
+            from_member = db.query(Member).filter(Member.id == payment.from_member).first()
+            if from_member:
+                family_id = from_member.family_id
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Member not found"
+                )
+        
+        # Calculate current balances to check debt
+        balances = BalanceService.calculate_family_balances(db, family_id)
+        
+        # Find the balance for the member making the payment
+        payer_balance = next((b for b in balances if b.member_id == payment.from_member), None)
+        
+        if not payer_balance:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Payer not found in family balances"
+            )
+        
+        # Check if the payer owes money to the recipient
+        recipient_name = None
+        debt_amount = 0.0
+        
+        # Find the debt to the recipient
+        for debt in payer_balance.debts:
+            # Get the recipient member to match the name
+            recipient = db.query(Member).filter(Member.id == payment.to_member).first()
+            if not recipient:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Recipient not found"
+                )
+            
+            if debt.to == recipient.name:
+                debt_amount = debt.amount
+                recipient_name = recipient.name
+                break
+        
+        # If no debt found or payment exceeds debt
+        if recipient_name is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"No debt found from {payer_balance.name} to the recipient"
+            )
+        
+        if payment.amount > debt_amount:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Payment amount (${payment.amount:.2f}) exceeds the debt (${debt_amount:.2f})"
+            )
+        
+        # Create the payment
         db_payment = Payment(
             from_member_id=payment.from_member,
             to_member_id=payment.to_member,
@@ -35,12 +95,7 @@ class PaymentService:
         # Use provided family_id or get it from the paying member
         if family_id:
             db_payment.family_id = family_id
-        else:
-            # Get the family of the paying member
-            from_member = db.query(Member).filter(Member.id == payment.from_member).first()
-            if from_member:
-                db_payment.family_id = from_member.family_id
-            
+        
         db.add(db_payment)
         db.commit()
         db.refresh(db_payment)

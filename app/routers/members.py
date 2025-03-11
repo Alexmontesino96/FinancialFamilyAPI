@@ -209,4 +209,64 @@ def delete_member(
                 detail="You don't have permission to delete this member"
             )
     
-    return MemberService.delete_member(db, member_id) 
+    return MemberService.delete_member(db, member_id)
+
+@router.get("/balance/{member_id}", response_model=MemberBalance)
+def get_member_balance(
+    member_id: str,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the financial balance of a member.
+    
+    This endpoint calculates how much the member owes to others and how much others owe to them.
+    
+    Args:
+        member_id: ID of the member to get the balance for
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        MemberBalance: The member's financial balance
+        
+    Raises:
+        HTTPException: If the member is not found or the user doesn't have permission to view the balance
+    """
+    # Get the member
+    member = MemberService.get_member(db, member_id)
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Member not found"
+        )
+    
+    # If a telegram_id is provided, verify that the user belongs to the same family
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        
+        if not requesting_member or requesting_member.family_id != member.family_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to view this member's balance"
+            )
+    
+    # Get the member's balance
+    balance = BalanceService.get_member_balance(db, member.family_id, member_id)
+    
+    # Mejorar la visualización de los balances
+    if not balance.debts:
+        # Si el miembro no tiene deudas, añadir un mensaje
+        balance.debts = []  # Asegurar que sea una lista vacía
+    
+    if not balance.credits:
+        # Si nadie le debe al miembro, añadir un mensaje
+        balance.credits = []  # Asegurar que sea una lista vacía
+    
+    if not balance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Balance not found"
+        )
+    
+    return balance 

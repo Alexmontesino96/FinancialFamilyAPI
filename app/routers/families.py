@@ -8,10 +8,10 @@ managing family members, and calculating balances.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from app.models.database import get_db
-from app.models.schemas import Family, FamilyCreate, Member, MemberCreate
+from app.models.schemas import Family, FamilyCreate, Member, MemberCreate, MemberBalance
 from app.services.family_service import FamilyService
 from app.services.member_service import MemberService
 from app.services.balance_service import BalanceService
@@ -177,37 +177,53 @@ def add_member_to_family(
     
     return FamilyService.add_member_to_family(db, family_id, member)
 
-@router.get("/{family_id}/balances")
+@router.get("/{family_id}/balances", response_model=List[MemberBalance])
 def get_family_balances(
     family_id: str,
     telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    debug: bool = Query(False, description="Show detailed debug information"),
     db: Session = Depends(get_db)
 ):
     """
-    Get family balances.
-    
-    This endpoint calculates and retrieves the balance of all members in a family,
-    showing who owes money to whom and how much.
-    If a Telegram ID is provided, it verifies that the user belongs to the family.
+    Get the financial balances of all members in a family.
     
     Args:
-        family_id (str): ID of the family
-        telegram_id (Optional[str]): Telegram ID of the requesting user for authorization
-        db (Session): Database session
-    
+        family_id: ID of the family to get balances for
+        telegram_id: Optional Telegram ID for permission validation
+        debug: If True, enable detailed logging of balance calculations
+        db: Database session
+        
     Returns:
-        List[MemberBalance]: List of member balances with detailed debt and credit information
-    
+        List[MemberBalance]: List of financial balances for each family member
+        
     Raises:
-        HTTPException: If the user doesn't have permission to access the family
+        HTTPException: If the family is not found or the user doesn't have permission to view the balances
     """
+    # Check if the family exists
+    family = FamilyService.get_family(db, family_id)
+    if not family:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Family not found"
+        )
+    
     # If a telegram_id is provided, verify that the user belongs to the family
     if telegram_id:
         member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        
         if not member or member.family_id != family_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this family"
+                detail="You don't have permission to view this family's balances"
             )
     
-    return BalanceService.calculate_family_balances(db, family_id) 
+    # Calculate the balances with debug mode if requested
+    balances = BalanceService.calculate_family_balances(db, family_id, debug_mode=debug)
+    
+    # Verificar la consistencia de los balances
+    is_consistent = BalanceService.verify_balance_consistency(db, family_id)
+    if not is_consistent:
+        # Loguear el error pero no interrumpir la respuesta
+        print(f"WARNING: Inconsistent balances detected for family {family_id}")
+    
+    return balances 

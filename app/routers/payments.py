@@ -8,12 +8,13 @@ as well as getting payments by member or family.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple, Any
 
 from app.models.database import get_db
 from app.models.schemas import Payment, PaymentCreate
 from app.services.payment_service import PaymentService
 from app.services.member_service import MemberService
+from app.services.balance_service import BalanceService
 
 router = APIRouter(
     prefix="/payments",
@@ -206,4 +207,125 @@ def delete_payment(
                 detail="You don't have permission to delete this payment"
             )
     
-    return PaymentService.delete_payment(db, payment_id) 
+    return PaymentService.delete_payment(db, payment_id)
+
+@router.get("/diagnostics/{family_id}", response_model=Dict[str, Any])
+def diagnose_payment_issues(
+    family_id: str,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    db: Session = Depends(get_db)
+):
+    """
+    Diagnostica problemas con los pagos en una familia.
+    
+    Args:
+        family_id: ID de la familia a diagnosticar
+        telegram_id: ID de Telegram opcional para validación de permisos
+        db: Sesión de base de datos
+        
+    Returns:
+        Dict: Información de diagnóstico que incluye:
+            - all_payments: Lista de todos los pagos en la familia
+            - possible_duplicates: Lista de posibles pagos duplicados
+            - consistency_check: Si los balances son consistentes (suman cero)
+    """
+    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la familia
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        
+        if not requesting_member or requesting_member.family_id != family_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para diagnosticar los pagos de esta familia"
+            )
+    
+    # Obtener diagnóstico de pagos
+    all_payments, duplicate_analysis = BalanceService.debug_payment_handling(db, family_id)
+    
+    # Verificar consistencia de balances
+    consistency_check = BalanceService.verify_balance_consistency(db, family_id)
+    
+    return {
+        "all_payments": all_payments,
+        "possible_duplicates": duplicate_analysis,
+        "consistency_check": consistency_check,
+        "recommendation": "Si hay pagos duplicados, considera eliminarlos usando el endpoint DELETE /payments/{payment_id}"
+    }
+
+@router.post("/fix-duplicates/{family_id}", response_model=Dict[str, Any])
+def fix_payment_duplicates(
+    family_id: str,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    db: Session = Depends(get_db)
+):
+    """
+    Corrige automáticamente pagos duplicados en una familia.
+    
+    Este endpoint detecta pagos que parecen ser duplicados (mismo monto, mismo origen y destino)
+    y elimina todos excepto el más reciente.
+    
+    Args:
+        family_id: ID de la familia a corregir
+        telegram_id: ID de Telegram opcional para validación de permisos
+        db: Sesión de base de datos
+        
+    Returns:
+        Dict: Información sobre las correcciones realizadas
+    """
+    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la familia
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        
+        if not requesting_member or requesting_member.family_id != family_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para corregir los pagos de esta familia"
+            )
+    
+    # Obtener diagnóstico de pagos
+    all_payments, duplicate_analysis = BalanceService.debug_payment_handling(db, family_id)
+    
+    # Si no hay duplicados, informar
+    if not duplicate_analysis:
+        return {
+            "status": "No se encontraron pagos duplicados para corregir",
+            "payments_deleted": []
+        }
+    
+    # Agrupar pagos por la "firma" (origen, destino, monto)
+    payments_by_signature = {}
+    for payment in all_payments:
+        signature = f"{payment['from_member']}->{payment['to_member']}-{payment['amount']}"
+        
+        if signature not in payments_by_signature:
+            payments_by_signature[signature] = []
+        
+        payments_by_signature[signature].append({
+            "id": payment["id"],
+            "created_at": payment["created_at"]
+        })
+    
+    # Para cada grupo de pagos duplicados, mantener solo el más reciente
+    deleted_payments = []
+    for signature, payments in payments_by_signature.items():
+        if len(payments) <= 1:
+            continue  # No es un duplicado
+        
+        # Ordenar por fecha de creación (del más reciente al más antiguo)
+        sorted_payments = sorted(payments, key=lambda p: p["created_at"], reverse=True)
+        
+        # Mantener el más reciente, eliminar el resto
+        for payment in sorted_payments[1:]:
+            deleted_payment = PaymentService.delete_payment(db, payment["id"])
+            if deleted_payment:
+                deleted_payments.append({
+                    "id": deleted_payment.id,
+                    "from_member_id": deleted_payment.from_member_id,
+                    "to_member_id": deleted_payment.to_member_id,
+                    "amount": deleted_payment.amount
+                })
+    
+    return {
+        "status": f"Se eliminaron {len(deleted_payments)} pagos duplicados",
+        "payments_deleted": deleted_payments
+    } 
