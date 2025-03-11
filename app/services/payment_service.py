@@ -11,32 +11,35 @@ class PaymentService:
     """
     
     @staticmethod
-    def create_payment(db: Session, payment: PaymentCreate):
+    def create_payment(db: Session, payment: PaymentCreate, family_id: str = None):
         """
         Create a new payment.
         
         Args:
             db: Database session
             payment: Payment data to create
+            family_id: Optional family ID. If not provided, it will be obtained from the paying member.
             
         Returns:
             Payment: The created payment
             
         Note:
-            The family_id is automatically set to the family of the paying member.
+            If family_id is not provided, it is automatically set to the family of the paying member.
         """
-        # Get the family of the paying member
-        from_member = db.query(Member).filter(Member.id == payment.from_member).first()
-        
         db_payment = Payment(
             from_member_id=payment.from_member,
             to_member_id=payment.to_member,
             amount=payment.amount
         )
         
-        # Assign the family of the paying member
-        if from_member:
-            db_payment.family_id = from_member.family_id
+        # Use provided family_id or get it from the paying member
+        if family_id:
+            db_payment.family_id = family_id
+        else:
+            # Get the family of the paying member
+            from_member = db.query(Member).filter(Member.id == payment.from_member).first()
+            if from_member:
+                db_payment.family_id = from_member.family_id
             
         db.add(db_payment)
         db.commit()
@@ -58,16 +61,16 @@ class PaymentService:
         return db.query(Payment).filter(Payment.id == payment_id).first()
     
     @staticmethod
-    def get_payments_by_member(db: Session, member_id: int):
+    def get_payments_by_member(db: Session, member_id: str):
         """
-        Get payments made or received by a member.
+        Get all payments involving a specific member (sent or received).
         
         Args:
             db: Database session
-            member_id: ID of the member to get payments for
+            member_id: ID of the member
             
         Returns:
-            List[Payment]: List of payments made or received by the member
+            List[Payment]: List of payments involving the member
         """
         return db.query(Payment).filter(
             (Payment.from_member_id == member_id) | (Payment.to_member_id == member_id)

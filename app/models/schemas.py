@@ -194,16 +194,22 @@ class PaymentCreate(PaymentBase):
     """
     pass
 
-class Payment(PaymentBase):
+class Payment(BaseModel):
     """
     Schema for payment responses.
     
     Attributes:
         id (str): Unique identifier for the payment
+        from_member (Member): Member sending the payment 
+        to_member (Member): Member receiving the payment
+        amount (float): The monetary amount of the payment
         family_id (str): ID of the family this payment belongs to
         created_at (datetime): When the payment was created
     """
     id: str
+    from_member: Member
+    to_member: Member
+    amount: float
     family_id: str
     created_at: datetime
 
