@@ -1,3 +1,11 @@
+"""
+Configuración de pruebas para el proyecto FinancialFamilyAPI.
+
+Este archivo contiene configuraciones y fixtures compartidos para todas las pruebas.
+"""
+
+import os
+import sys
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -7,6 +15,9 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.models.database import Base, get_db
 from app.models.models import Family, Member, Expense, Payment
+
+# Añadir el directorio raíz al PATH para que las importaciones funcionen
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Crear una base de datos en memoria para las pruebas
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
@@ -48,4 +59,14 @@ def client(test_db):
         yield c
     
     # Restaurar la dependencia original
-    app.dependency_overrides = {} 
+    app.dependency_overrides = {}
+
+# Fixtures compartidos
+@pytest.fixture
+def test_environment():
+    """
+    Fixture que establece las variables de entorno necesarias para las pruebas.
+    """
+    os.environ["TESTING"] = "True"
+    yield
+    os.environ.pop("TESTING", None) 

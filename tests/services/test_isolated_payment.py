@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import sys
 import os
+from fastapi import HTTPException
 
 # Asegurar que el directorio raíz está en el path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
@@ -197,6 +198,150 @@ class TestIsolatedPaymentService(unittest.TestCase):
         
         # Verificar que el resultado es None
         self.assertIsNone(result)
+
+    def test_payment_exceeding_debt(self):
+        """
+        Prueba que verifica que un pago no puede exceder la deuda actual.
+        """
+        # Configurar el mock de la base de datos
+        self.mock_db.query.return_value.filter.return_value.first.return_value = self.member1
+        
+        # Crear datos para el pago (monto mayor que la deuda)
+        payment_data = PaymentCreate(
+            from_member="member-1",
+            to_member="member-2",
+            amount=150.0  # Monto mayor que la deuda simulada
+        )
+        
+        # Mock del BalanceService para simular una deuda de 100
+        with patch('app.services.balance_service.BalanceService.calculate_family_balances') as mock_calculate:
+            # Crear un balance mock para el pagador
+            from app.models.schemas import MemberBalance, DebtDetail
+            
+            # Balance mock donde el pagador debe 100 al destinatario
+            mock_balance = MemberBalance(
+                member_id="member-1",
+                name="Juan Pérez",
+                total_debt=100.0,
+                total_owed=0.0,
+                net_balance=-100.0,
+                debts=[
+                    DebtDetail(to="María López", amount=100.0)
+                ]
+            )
+            
+            # Configurar el mock para devolver una lista con el balance del pagador
+            mock_calculate.return_value = [mock_balance]
+            
+            # Verificar que se lanza la excepción apropiada
+            with self.assertRaises(HTTPException) as context:
+                PaymentService.create_payment(self.mock_db, payment_data, family_id="family-1")
+            
+            # Verificar los detalles de la excepción
+            self.assertEqual(context.exception.status_code, 400)
+            self.assertIn("exceeds the debt", context.exception.detail)
+            
+            # Verificar que se llamó al método calculate_family_balances
+            mock_calculate.assert_called_once_with(self.mock_db, "family-1")
+            
+            # Verificar que no se agregó ningún pago a la base de datos
+            self.mock_db.add.assert_not_called()
+            self.mock_db.commit.assert_not_called()
+
+    def test_payment_equal_to_debt(self):
+        """
+        Prueba que verifica que un pago igual a la deuda actual es válido.
+        """
+        # Configurar el mock de la base de datos
+        self.mock_db.query.return_value.filter.return_value.first.return_value = self.member1
+        
+        # Crear datos para el pago (monto exactamente igual a la deuda)
+        payment_data = PaymentCreate(
+            from_member="member-1",
+            to_member="member-2",
+            amount=100.0  # Monto igual a la deuda simulada
+        )
+        
+        # Mock del BalanceService para simular una deuda de 100
+        with patch('app.services.balance_service.BalanceService.calculate_family_balances') as mock_calculate:
+            # Crear un balance mock para el pagador
+            from app.models.schemas import MemberBalance, DebtDetail
+            
+            # Balance mock donde el pagador debe 100 al destinatario
+            mock_balance = MemberBalance(
+                member_id="member-1",
+                name="Juan Pérez",
+                total_debt=100.0,
+                total_owed=0.0,
+                net_balance=-100.0,
+                debts=[
+                    DebtDetail(to="María López", amount=100.0)
+                ]
+            )
+            
+            # Configurar el mock para devolver una lista con el balance del pagador
+            mock_calculate.return_value = [mock_balance]
+            
+            # Ejecutar el método a probar
+            result = PaymentService.create_payment(self.mock_db, payment_data, family_id="family-1")
+            
+            # Verificar que se llamó al método calculate_family_balances
+            mock_calculate.assert_called_once_with(self.mock_db, "family-1")
+            
+            # Verificar que se agregó el pago a la base de datos
+            self.mock_db.add.assert_called_once()
+            self.mock_db.commit.assert_called_once()
+            
+            # Verificar que el resultado tiene los datos correctos
+            self.assertEqual(result.from_member_id, "member-1")
+            self.assertEqual(result.to_member_id, "member-2")
+            self.assertEqual(result.amount, 100.0)
+            self.assertEqual(result.family_id, "family-1")
+
+    def test_payment_with_no_debt(self):
+        """
+        Prueba que verifica que un pago a alguien a quien no se le debe dinero es rechazado.
+        """
+        # Configurar el mock de la base de datos
+        self.mock_db.query.return_value.filter.return_value.first.return_value = self.member1
+        
+        # Crear datos para el pago
+        payment_data = PaymentCreate(
+            from_member="member-1",
+            to_member="member-3",  # Un miembro diferente al que se le debe
+            amount=50.0
+        )
+        
+        # Mock del BalanceService para simular una deuda a otro miembro
+        with patch('app.services.balance_service.BalanceService.calculate_family_balances') as mock_calculate:
+            from app.models.schemas import MemberBalance, DebtDetail
+            
+            # Balance mock donde el pagador debe dinero a alguien más, pero no al destinatario
+            mock_balance = MemberBalance(
+                member_id="member-1",
+                name="Juan Pérez",
+                total_debt=100.0,
+                total_owed=0.0,
+                net_balance=-100.0,
+                debts=[
+                    DebtDetail(to="María López", amount=100.0)  # Debe a María, no al destinatario
+                ]
+            )
+            
+            # Configurar el mock para devolver una lista con el balance del pagador
+            mock_calculate.return_value = [mock_balance]
+            
+            # Verificar que se lanza la excepción apropiada
+            with self.assertRaises(HTTPException) as context:
+                PaymentService.create_payment(self.mock_db, payment_data, family_id="family-1")
+            
+            # Verificar los detalles de la excepción
+            self.assertEqual(context.exception.status_code, 400)
+            self.assertIn("No debt found", context.exception.detail)
+            
+            # Verificar que no se agregó ningún pago a la base de datos
+            self.mock_db.add.assert_not_called()
+            self.mock_db.commit.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main() 
