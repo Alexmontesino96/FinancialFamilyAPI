@@ -30,15 +30,20 @@ class BalanceService:
         members = db.query(Member).filter(Member.family_id == family_id).all()
         member_ids = [m.id for m in members]
         
-        # Initialize the balance dictionary
-        balances: Dict[int, Dict] = {}
+        # Create a dictionary of members by ID for easy lookup
+        members_by_id = {str(m.id): m for m in members}
+        
+        # Initialize the balance dictionary with string keys
+        balances: Dict[str, Dict] = {}
         for member in members:
-            balances[member.id] = {
+            balances[str(member.id)] = {
                 "member_id": str(member.id),
                 "name": member.name,
                 "total_debt": 0.0,
                 "total_owed": 0.0,
                 "net_balance": 0.0,
+                "debts_by_member": {},  # Dictionary to track debts by member
+                "credits_by_member": {},  # Dictionary to track credits by member
                 "debts": [],
                 "credits": []
             }
@@ -47,7 +52,7 @@ class BalanceService:
         expenses = db.query(Expense).filter(Expense.paid_by.in_(member_ids)).all()
         for expense in expenses:
             # Get the member who paid
-            payer_id = expense.paid_by
+            payer_id = str(expense.paid_by)
             
             # Get the members among whom the expense is split
             split_members = expense.split_among
@@ -61,28 +66,28 @@ class BalanceService:
             
             # Update the balances
             for member in split_members:
+                member_id = str(member.id)
+                
                 # If the member is the payer, they don't owe themselves
-                if member.id == payer_id:
+                if member_id == payer_id:
                     continue
                 
-                # The member owes the payer
-                balances[member.id]["total_debt"] += amount_per_member
+                # Initialize the debt tracking for this pair if needed
+                if payer_id not in balances[member_id]["debts_by_member"]:
+                    balances[member_id]["debts_by_member"][payer_id] = 0.0
+                
+                if member_id not in balances[payer_id]["credits_by_member"]:
+                    balances[payer_id]["credits_by_member"][member_id] = 0.0
+                
+                # Update the debt amount
+                balances[member_id]["debts_by_member"][payer_id] += amount_per_member
+                balances[payer_id]["credits_by_member"][member_id] += amount_per_member
+                
+                # Update totals
+                balances[member_id]["total_debt"] += amount_per_member
                 balances[payer_id]["total_owed"] += amount_per_member
-                
-                # Add the debt to the member's debt list
-                balances[member.id]["debts"].append({
-                    "to": str(payer_id),
-                    "amount": amount_per_member
-                })
-                
-                # Add the credit to the payer's credit list
-                balances[payer_id]["credits"].append({
-                    "from": str(member.id),
-                    "amount": amount_per_member
-                })
         
         # Process payments
-        # Use separate queries for from_member and to_member to avoid using in_() on relationships
         payments_from = db.query(Payment).filter(Payment.from_member_id.in_(member_ids)).all()
         payments_to = db.query(Payment).filter(Payment.to_member_id.in_(member_ids)).all()
         
@@ -90,15 +95,61 @@ class BalanceService:
         payments = payments_from + payments_to
         
         for payment in payments:
-            from_member_id = payment.from_member_id
-            to_member_id = payment.to_member_id
+            from_member_id = str(payment.from_member_id)
+            to_member_id = str(payment.to_member_id)
             amount = payment.amount
             
             # Verify that both members belong to the family
             if from_member_id in balances and to_member_id in balances:
-                # Update the balances
+                # Update the debt tracking
+                if to_member_id in balances[from_member_id]["debts_by_member"]:
+                    # Reduce the debt, don't go below zero
+                    current_debt = balances[from_member_id]["debts_by_member"][to_member_id]
+                    reduction = min(current_debt, amount)
+                    balances[from_member_id]["debts_by_member"][to_member_id] -= reduction
+                    
+                    # If debt is now zero, remove it entirely
+                    if balances[from_member_id]["debts_by_member"][to_member_id] <= 0.001:  # Small threshold for float comparison
+                        del balances[from_member_id]["debts_by_member"][to_member_id]
+                
+                # Update the credit tracking
+                if from_member_id in balances[to_member_id]["credits_by_member"]:
+                    # Reduce the credit, don't go below zero
+                    current_credit = balances[to_member_id]["credits_by_member"][from_member_id]
+                    reduction = min(current_credit, amount)
+                    balances[to_member_id]["credits_by_member"][from_member_id] -= reduction
+                    
+                    # If credit is now zero, remove it entirely
+                    if balances[to_member_id]["credits_by_member"][from_member_id] <= 0.001:  # Small threshold for float comparison
+                        del balances[to_member_id]["credits_by_member"][from_member_id]
+                
+                # Update the totals
                 balances[from_member_id]["total_debt"] -= amount
                 balances[to_member_id]["total_owed"] -= amount
+        
+        # Convert the debt and credit dictionaries to lists
+        for member_id, balance_data in balances.items():
+            # Convert debts_by_member to debts list
+            for to_id, amount in balance_data["debts_by_member"].items():
+                if amount > 0:
+                    debt_detail = {
+                        "to": members_by_id[to_id].name,  # Use member name instead of ID
+                        "amount": amount
+                    }
+                    balance_data["debts"].append(debt_detail)
+            
+            # Convert credits_by_member to credits list
+            for from_id, amount in balance_data["credits_by_member"].items():
+                if amount > 0:
+                    credit_detail = {
+                        "from": members_by_id[from_id].name,  # Use member name instead of ID
+                        "amount": amount
+                    }
+                    balance_data["credits"].append(credit_detail)
+            
+            # Clean up temporary dictionaries
+            del balance_data["debts_by_member"]
+            del balance_data["credits_by_member"]
         
         # Calculate the net balance for each member
         for member_id, balance in balances.items():
@@ -121,7 +172,7 @@ class BalanceService:
         return result
     
     @staticmethod
-    def get_member_balance(db: Session, family_id: str, member_id: int) -> MemberBalance:
+    def get_member_balance(db: Session, family_id: str, member_id: str) -> MemberBalance:
         """
         Get the balance of a specific member.
         

@@ -33,7 +33,7 @@ class MemberService:
         return db_member
     
     @staticmethod
-    def get_member(db: Session, member_id: int):
+    def get_member(db: Session, member_id: str):
         """
         Get a member by their ID.
         
@@ -61,7 +61,7 @@ class MemberService:
         return db.query(Member).filter(Member.telegram_id == telegram_id).first()
     
     @staticmethod
-    def update_member(db: Session, member_id: int, member: MemberUpdate):
+    def update_member(db: Session, member_id: str, member: MemberUpdate):
         """
         Update a member's information.
         
@@ -86,7 +86,7 @@ class MemberService:
         return db_member
     
     @staticmethod
-    def delete_member(db: Session, member_id: int):
+    def delete_member(db: Session, member_id: str):
         """
         Delete a member.
         

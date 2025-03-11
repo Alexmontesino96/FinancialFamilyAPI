@@ -67,7 +67,7 @@ class ExpenseService:
         return db.query(Expense).filter(Expense.id == expense_id).first()
     
     @staticmethod
-    def get_expenses_by_member(db: Session, member_id: int):
+    def get_expenses_by_member(db: Session, member_id: str):
         """
         Get expenses paid by a member.
         
