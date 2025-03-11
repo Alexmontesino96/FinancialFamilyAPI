@@ -41,6 +41,7 @@ def create_payment(
         
     Raises:
         HTTPException: If the user doesn't have permission to create payments for these members
+                     or if the payment amount exceeds the debt
     """
     # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
     if telegram_id:
@@ -51,10 +52,21 @@ def create_payment(
         if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id or from_member.family_id != to_member.family_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to create payments for these members"
+                detail="No tienes permiso para crear pagos entre estos miembros"
             )
     
-    return PaymentService.create_payment(db, payment)
+    try:
+        # Intentar crear el pago - aquí se validará si el monto excede la deuda
+        return PaymentService.create_payment(db, payment)
+    except HTTPException as e:
+        # Reenviar la excepción HTTP sin modificarla
+        raise
+    except Exception as e:
+        # Para otros errores, enviar un mensaje genérico
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al procesar el pago: {str(e)}"
+        )
 
 @router.get("/{payment_id}", response_model=Payment)
 def get_payment(

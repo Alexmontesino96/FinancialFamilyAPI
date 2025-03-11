@@ -2,6 +2,10 @@ from sqlalchemy.orm import Session
 from app.models.models import Payment, Member
 from app.models.schemas import PaymentCreate
 from fastapi import HTTPException, status
+import logging
+
+# Configurar logging
+logger = logging.getLogger(__name__)
 
 class PaymentService:
     """
@@ -41,8 +45,20 @@ class PaymentService:
                     detail="Member not found"
                 )
         
-        # Calculate current balances to check debt
-        balances = BalanceService.calculate_family_balances(db, family_id)
+        # Obtener información sobre los miembros involucrados
+        from_member = db.query(Member).filter(Member.id == payment.from_member).first()
+        to_member = db.query(Member).filter(Member.id == payment.to_member).first()
+        
+        if not from_member or not to_member:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="One or both members not found"
+            )
+            
+        logger.info(f"Validando pago de {from_member.name} a {to_member.name} por ${payment.amount:.2f}")
+        
+        # Calculate current balances to check debt (con modo debug para cálculos precisos)
+        balances = BalanceService.calculate_family_balances(db, family_id, debug_mode=True)
         
         # Find the balance for the member making the payment
         payer_balance = next((b for b in balances if b.member_id == payment.from_member), None)
@@ -54,36 +70,44 @@ class PaymentService:
             )
         
         # Check if the payer owes money to the recipient
-        recipient_name = None
+        recipient_name = to_member.name
         debt_amount = 0.0
         
         # Find the debt to the recipient
         for debt in payer_balance.debts:
-            # Get the recipient member to match the name
-            recipient = db.query(Member).filter(Member.id == payment.to_member).first()
-            if not recipient:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Recipient not found"
-                )
-            
-            if debt.to == recipient.name:
+            if debt.to == recipient_name:
                 debt_amount = debt.amount
-                recipient_name = recipient.name
                 break
         
-        # If no debt found or payment exceeds debt
-        if recipient_name is None:
+        # Si no hay deuda directa, verificar si hay una deuda indirecta en la dirección contraria
+        if debt_amount == 0:
+            # Verificar si el receptor debe dinero al pagador (caso en que el pago sería excesivo)
+            recipient_balance = next((b for b in balances if b.member_id == payment.to_member), None)
+            
+            if recipient_balance:
+                # Verificar si el receptor tiene deudas con el pagador
+                for debt in recipient_balance.debts:
+                    if debt.to == from_member.name:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"El receptor {recipient_name} debe ${debt.amount:.2f} al pagador {from_member.name}. No puedes realizar un pago en esta dirección."
+                        )
+        
+        # Si no hay deuda en ninguna dirección
+        if debt_amount == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No debt found from {payer_balance.name} to the recipient"
+                detail=f"No hay deuda pendiente de {from_member.name} hacia {recipient_name}"
             )
         
+        # Verificar si el pago excede la deuda
         if payment.amount > debt_amount:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Payment amount (${payment.amount:.2f}) exceeds the debt (${debt_amount:.2f})"
+                detail=f"El monto del pago (${payment.amount:.2f}) excede la deuda actual (${debt_amount:.2f})"
             )
+        
+        logger.info(f"Pago validado: ${payment.amount:.2f} de {from_member.name} a {recipient_name}, deuda actual: ${debt_amount:.2f}")
         
         # Create the payment
         db_payment = Payment(
