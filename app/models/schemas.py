@@ -12,6 +12,7 @@ and include base models, creation models, update models, and response models.
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
+import enum
 
 # Authentication schemas
 class Token(BaseModel):
@@ -174,6 +175,19 @@ class Expense(ExpenseBase):
         from_attributes = True
 
 # Payment schemas
+class PaymentStatus(str, enum.Enum):
+    """
+    Enum for payment status values.
+    
+    Attributes:
+        PENDING: Payment has been created but not confirmed by the recipient
+        CONFIRM: Payment has been confirmed by the recipient
+        INACTIVE: Payment has been rejected or cancelled
+    """
+    PENDING = "PENDING"
+    CONFIRM = "CONFIRM"
+    INACTIVE = "INACTIVE"
+
 class PaymentBase(BaseModel):
     """
     Base schema for payment data.
@@ -191,8 +205,21 @@ class PaymentCreate(PaymentBase):
     """
     Schema for creating a new payment.
     Inherits all fields from PaymentBase.
+    
+    Note:
+        The status field is not included as it is automatically set to PENDING upon creation.
+        New payments must be confirmed by the recipient before they affect balances.
     """
     pass
+
+class PaymentUpdate(BaseModel):
+    """
+    Schema for updating a payment's status.
+    
+    Attributes:
+        status (PaymentStatus): New status for the payment
+    """
+    status: PaymentStatus
 
 class Payment(BaseModel):
     """
@@ -203,6 +230,7 @@ class Payment(BaseModel):
         from_member (Member): Member sending the payment 
         to_member (Member): Member receiving the payment
         amount (float): The monetary amount of the payment
+        status (PaymentStatus): Current status of the payment
         family_id (str): ID of the family this payment belongs to
         created_at (datetime): When the payment was created
     """
@@ -210,6 +238,7 @@ class Payment(BaseModel):
     from_member: Member
     to_member: Member
     amount: float
+    status: PaymentStatus
     family_id: str
     created_at: datetime
 
@@ -222,22 +251,48 @@ class DebtDetail(BaseModel):
     Schema for debt details in balance calculations.
     
     Attributes:
-        to (str): Name of the member who is owed money
+        to_id (str): ID of the member who is owed money
+        to_name (str): Name of the member who is owed money (for display purposes)
         amount (float): Amount of money owed
     """
-    to: str
+    to_id: str
+    to_name: str = Field(..., alias="to")
     amount: float
+    
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                "to_id": "abc123",
+                "to": "Juan Pérez", 
+                "amount": 100.0
+            }
+        }
+    }
 
 class CreditDetail(BaseModel):
     """
     Schema for credit details in balance calculations.
     
     Attributes:
-        from_ (str): Name of the member who owes money
+        from_id (str): ID of the member who owes money
+        from_name (str): Name of the member who owes money (for display purposes)
         amount (float): Amount of money owed
     """
-    from_: str = Field(..., alias="from")
+    from_id: str
+    from_name: str = Field(..., alias="from")
     amount: float
+
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                "from_id": "abc123",
+                "from": "María García",
+                "amount": 50.0
+            }
+        }
+    }
 
 class MemberBalance(BaseModel):
     """
@@ -260,5 +315,6 @@ class MemberBalance(BaseModel):
     debts: List[DebtDetail] = []
     credits: List[CreditDetail] = []
 
-    class Config:
-        populate_by_name = True 
+    model_config = {
+        "populate_by_name": True
+    } 

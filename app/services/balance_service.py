@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from app.models.models import Family, Member, Expense, Payment
+from sqlalchemy import func, and_
+from app.models.models import Family, Member, Expense, Payment, PaymentStatus
 from app.models.schemas import MemberBalance, DebtDetail, CreditDetail
 from typing import List, Dict, Set, Tuple
 import logging
@@ -116,16 +117,19 @@ class BalanceService:
         
         # Process payments
         # CORRECCIÓN: Asegurar que los pagos no se procesen por duplicado
-        # Obtener todos los pagos de la familia
+        # Obtener todos los pagos confirmados de la familia
         all_payments = db.query(Payment).filter(
-            (Payment.family_id == family_id)
+            and_(
+                Payment.family_id == family_id,
+                Payment.status == PaymentStatus.CONFIRM
+            )
         ).all()
         
         # Crear un conjunto de IDs de pagos procesados para evitar duplicados
         processed_payment_ids = set()
         
         if debug_mode:
-            logger.info(f"Found {len(all_payments)} payments to process")
+            logger.info(f"Found {len(all_payments)} confirmed payments to process")
         
         for payment in all_payments:
             # Verificar si ya hemos procesado este pago
@@ -266,7 +270,8 @@ class BalanceService:
             for to_id, amount in balance_data["debts_by_member"].items():
                 if amount > 0:
                     debt_detail = {
-                        "to": members_by_id[to_id].name,  # Use member name instead of ID
+                        "to_id": to_id,
+                        "to_name": members_by_id[to_id].name,
                         "amount": amount
                     }
                     balance_data["debts"].append(debt_detail)
@@ -276,7 +281,8 @@ class BalanceService:
                 if member_id in other_balance["debts_by_member"]:
                     amount = other_balance["debts_by_member"][member_id]
                     credit_detail = {
-                        "from": other_balance["name"],
+                        "from_id": other_id,
+                        "from_name": other_balance["name"],
                         "amount": amount
                     }
                     balance_data["credits"].append(credit_detail)
