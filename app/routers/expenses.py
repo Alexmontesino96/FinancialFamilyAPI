@@ -157,7 +157,7 @@ def update_expense(
 
 @router.get("/member/{member_id}", response_model=List[Expense])
 def get_member_expenses(
-    member_id: int,
+    member_id: str,
     telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
@@ -165,7 +165,7 @@ def get_member_expenses(
     Get expenses for a specific member.
     
     Args:
-        member_id: ID of the member to get expenses for
+        member_id (str): UUID of the member to get expenses for
         telegram_id: Optional Telegram ID for permission validation
         db: Database session
         
