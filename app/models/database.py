@@ -18,7 +18,9 @@ from dotenv import load_dotenv
 load_dotenv()
   
 # Get database URL from environment variables with a default fallback
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost/familyfinance")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("No DATABASE_URL set in environment variables. This is required for database connection.")
 
 # Create database engine with the configured URL
 engine = create_engine(DATABASE_URL)

@@ -13,9 +13,16 @@ import os
 from sqlalchemy import create_engine, text, Column, Enum
 from sqlalchemy.orm import sessionmaker, Session
 import enum
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
 
 # Conexión directa a la base de datos PostgreSQL
-DATABASE_URL = "postgresql://financialfamilydb_user:F2HOFqnniRHbPuH3nAtzERM9QqqMuHHF@dpg-cv7q408fnakc73dsosqg-a.oregon-postgres.render.com/financialfamilydb"
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("No DATABASE_URL set in environment variables. This is required for database connection.")
+    
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
