@@ -226,8 +226,8 @@ class PaymentCreate(PaymentBase):
     Inherits all fields from PaymentBase.
     
     Note:
-        The status field is not included as it is automatically set to PENDING upon creation.
-        New payments must be confirmed by the recipient before they affect balances.
+        The status field is not included as it is automatically set to CONFIRM upon creation.
+        New payments are automatically confirmed to affect balances immediately.
     """
     pass
 

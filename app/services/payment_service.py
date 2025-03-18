@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
-from app.models.models import Payment, Member
-from app.models.schemas import PaymentCreate
+from app.models.models import Payment, Member, PaymentStatus
+from app.models.schemas import PaymentCreate, PaymentUpdate
 from fastapi import HTTPException, status
 import logging
 
@@ -30,6 +30,7 @@ class PaymentService:
             
         Note:
             If family_id is not provided, it is automatically set to the family of the paying member.
+            The payment status is initially set to PENDING.
         """
         # Validate that payment amount doesn't exceed the debt
         from app.services.balance_service import BalanceService
@@ -114,6 +115,7 @@ class PaymentService:
             from_member_id=payment.from_member,
             to_member_id=payment.to_member,
             amount=payment.amount
+            # status se establecerá al valor predeterminado (CONFIRM) de la base de datos
         )
         
         # Use provided family_id or get it from the paying member
@@ -121,6 +123,106 @@ class PaymentService:
             db_payment.family_id = family_id
         
         db.add(db_payment)
+        db.commit()
+        db.refresh(db_payment)
+        return db_payment
+    
+    @staticmethod
+    def update_payment_status(db: Session, payment_id: str, payment_update: PaymentUpdate):
+        """
+        Update a payment's status.
+        
+        Args:
+            db: Database session
+            payment_id: ID of the payment to update
+            payment_update: New status data
+            
+        Returns:
+            Payment: The updated payment
+            
+        Raises:
+            HTTPException: If the payment is not found
+        """
+        db_payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not db_payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Pago no encontrado"
+            )
+        
+        # Actualizar el estado del pago
+        db_payment.status = payment_update.status
+        
+        db.commit()
+        db.refresh(db_payment)
+        return db_payment
+    
+    @staticmethod
+    def confirm_payment(db: Session, payment_id: str):
+        """
+        Confirm a payment by changing its status to CONFIRM.
+        
+        Args:
+            db: Database session
+            payment_id: ID of the payment to confirm
+            
+        Returns:
+            Payment: The confirmed payment
+            
+        Raises:
+            HTTPException: If the payment is not found or not in PENDING status
+        """
+        db_payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not db_payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Pago no encontrado"
+            )
+        
+        if db_payment.status != PaymentStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El pago no puede ser confirmado porque su estado actual es {db_payment.status.value}"
+            )
+        
+        # Actualizar el estado del pago a CONFIRM
+        db_payment.status = PaymentStatus.CONFIRM
+        
+        db.commit()
+        db.refresh(db_payment)
+        return db_payment
+    
+    @staticmethod
+    def reject_payment(db: Session, payment_id: str):
+        """
+        Reject a payment by changing its status to INACTIVE.
+        
+        Args:
+            db: Database session
+            payment_id: ID of the payment to reject
+            
+        Returns:
+            Payment: The rejected payment
+            
+        Raises:
+            HTTPException: If the payment is not found or not in PENDING status
+        """
+        db_payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not db_payment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Pago no encontrado"
+            )
+        
+        if db_payment.status != PaymentStatus.PENDING:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El pago no puede ser rechazado porque su estado actual es {db_payment.status.value}"
+            )
+        
+        # Actualizar el estado del pago a INACTIVE
+        db_payment.status = PaymentStatus.INACTIVE
+        
         db.commit()
         db.refresh(db_payment)
         return db_payment

@@ -170,7 +170,7 @@ class Payment(Base):
     from_member_id = Column(String(36), ForeignKey("members.id"))
     to_member_id = Column(String(36), ForeignKey("members.id"))
     amount = Column(Float)
-    status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False)
+    status = Column(Enum(PaymentStatus), default=PaymentStatus.CONFIRM, nullable=False)
     family_id = Column(String(36), ForeignKey("families.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

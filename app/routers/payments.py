@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Tuple, Any
 
 from app.models.database import get_db
-from app.models.schemas import Payment, PaymentCreate
+from app.models.schemas import Payment, PaymentCreate, PaymentUpdate, PaymentStatus
 from app.services.payment_service import PaymentService
 from app.services.member_service import MemberService
 from app.services.balance_service import BalanceService
@@ -31,17 +31,20 @@ def create_payment(
     """
     Create a new payment.
     
+    Creates a payment between two members of a family. The payment is initially set to status CONFIRM
+    and immediately affects balance calculations.
+    
     Args:
-        payment: Payment data to create
+        payment: Payment data to create (from_member, to_member, amount)
         telegram_id: Optional Telegram ID for permission validation
         db: Database session
         
     Returns:
-        Payment: The created payment
+        Payment: The created payment with status CONFIRM
         
     Raises:
-        HTTPException: If the user doesn't have permission to create payments for these members
-                     or if the payment amount exceeds the debt
+        HTTPException: If the user doesn't have permission to create payments for these members,
+                     if the payment amount exceeds the debt, or if there is no debt in that direction
     """
     # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
     if telegram_id:
@@ -340,4 +343,163 @@ def fix_payment_duplicates(
     return {
         "status": f"Se eliminaron {len(deleted_payments)} pagos duplicados",
         "payments_deleted": deleted_payments
-    } 
+    }
+
+@router.patch("/{payment_id}/status", response_model=Payment)
+def update_payment_status(
+    payment_id: str,
+    payment_update: PaymentUpdate,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    db: Session = Depends(get_db)
+):
+    """
+    Update a payment's status manually.
+    
+    This endpoint allows direct updating of a payment's status to any valid status value.
+    In most cases, it's better to use the specific /confirm and /reject endpoints instead
+    as they include appropriate validations for state transitions.
+    
+    Note:
+        - Only CONFIRM status payments are considered in balance calculations.
+        - Changing status from PENDING to CONFIRM will affect balances.
+        - Changing status to/from INACTIVE will not affect existing balances.
+    
+    Args:
+        payment_id: ID of the payment to update
+        payment_update: New status data
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        Payment: The updated payment
+        
+    Raises:
+        HTTPException: If the payment is not found or the user doesn't have permission
+    """
+    # Verificar que el pago existe
+    payment = PaymentService.get_payment(db, payment_id)
+    if not payment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pago no encontrado"
+        )
+    
+    # Si se proporciona un telegram_id, verificar permisos
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        if not requesting_member or requesting_member.family_id != payment.family_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para actualizar este pago"
+            )
+    
+    # Actualizar el estado del pago
+    return PaymentService.update_payment_status(db, payment_id, payment_update)
+
+@router.post("/{payment_id}/confirm", response_model=Payment)
+def confirm_payment(
+    payment_id: str,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    db: Session = Depends(get_db)
+):
+    """
+    Confirm a payment by setting its status to CONFIRM.
+    
+    When a payment is confirmed, its status changes from PENDING to CONFIRM, and it will be
+    considered in balance calculations. Only payments in PENDING status can be confirmed.
+    The payment must be confirmed by the recipient or another member of the same family.
+    
+    Args:
+        payment_id: ID of the payment to confirm
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        Payment: The confirmed payment
+        
+    Raises:
+        HTTPException: If the payment is not found, not in PENDING status,
+                      or the user doesn't have permission
+    """
+    # Verificar que el pago existe
+    payment = PaymentService.get_payment(db, payment_id)
+    if not payment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pago no encontrado"
+        )
+    
+    # Si se proporciona un telegram_id, verificar permisos
+    # Solo el receptor del pago o un miembro de la misma familia puede confirmar
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        if not requesting_member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Usuario no encontrado"
+            )
+        
+        # Verificar que es el receptor del pago o un miembro de la misma familia
+        if requesting_member.id != payment.to_member_id and requesting_member.family_id != payment.family_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para confirmar este pago"
+            )
+    
+    # Confirmar el pago
+    return PaymentService.confirm_payment(db, payment_id)
+
+@router.post("/{payment_id}/reject", response_model=Payment)
+def reject_payment(
+    payment_id: str,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    db: Session = Depends(get_db)
+):
+    """
+    Reject a payment by setting its status to INACTIVE.
+    
+    When a payment is rejected, its status changes from PENDING to INACTIVE, and it will NOT
+    be considered in balance calculations. Only payments in PENDING status can be rejected.
+    The payment can be rejected by the recipient, the sender, or another member of the same family.
+    
+    Args:
+        payment_id: ID of the payment to reject
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        Payment: The rejected payment
+        
+    Raises:
+        HTTPException: If the payment is not found, not in PENDING status,
+                      or the user doesn't have permission
+    """
+    # Verificar que el pago existe
+    payment = PaymentService.get_payment(db, payment_id)
+    if not payment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pago no encontrado"
+        )
+    
+    # Si se proporciona un telegram_id, verificar permisos
+    # Solo el receptor del pago o quien lo creó puede rechazarlo
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        if not requesting_member:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Usuario no encontrado"
+            )
+        
+        # Verificar que es el receptor del pago, quien lo creó, o un miembro de la misma familia
+        if (requesting_member.id != payment.to_member_id and 
+            requesting_member.id != payment.from_member_id and 
+            requesting_member.family_id != payment.family_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para rechazar este pago"
+            )
+    
+    # Rechazar el pago
+    return PaymentService.reject_payment(db, payment_id) 
