@@ -51,18 +51,18 @@ def get_member_by_telegram_id(
 
 @router.get("/id/{member_id}", response_model=Member)
 def get_member_by_id(
-    member_id: int,
+    member_id: str,
     telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
     """
     Get a member by ID.
     
-    This endpoint retrieves a member using their numeric ID.
+    This endpoint retrieves a member using their UUID.
     If a Telegram ID is provided, it verifies that the user belongs to the same family.
     
     Args:
-        member_id (int): ID of the member to retrieve
+        member_id (str): UUID of the member to retrieve
         telegram_id (Optional[str]): Telegram ID of the requesting user for authorization
         db (Session): Database session
     
@@ -128,7 +128,7 @@ def get_current_member_balance(
 
 @router.put("/{member_id}", response_model=Member)
 def update_member(
-    member_id: int,
+    member_id: str,
     member: MemberUpdate,
     telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
@@ -140,7 +140,7 @@ def update_member(
     If a Telegram ID is provided, it verifies that the user is the same member or belongs to the same family.
     
     Args:
-        member_id (int): ID of the member to update
+        member_id (str): UUID of the member to update
         member (MemberUpdate): Updated member data
         telegram_id (Optional[str]): Telegram ID of the requesting user for authorization
         db (Session): Database session
@@ -171,18 +171,18 @@ def update_member(
 
 @router.delete("/{member_id}", response_model=Member)
 def delete_member(
-    member_id: int,
+    member_id: str,
     telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
     """
     Delete a member.
     
-    This endpoint deletes a member from the system.
+    This endpoint deletes a member.
     If a Telegram ID is provided, it verifies that the user belongs to the same family.
     
     Args:
-        member_id (int): ID of the member to delete
+        member_id (str): UUID of the member to delete
         telegram_id (Optional[str]): Telegram ID of the requesting user for authorization
         db (Session): Database session
     
@@ -192,7 +192,6 @@ def delete_member(
     Raises:
         HTTPException: If the member is not found or the user doesn't have permission
     """
-    # Verify that the member to delete exists
     db_member = MemberService.get_member(db, member_id)
     if not db_member:
         raise HTTPException(
