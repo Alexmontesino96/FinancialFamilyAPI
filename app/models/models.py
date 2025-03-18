@@ -12,11 +12,12 @@ Models:
 - Payment: Represents a money transfer between two members
 """
 
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Table, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Table, DateTime, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
+import enum
 from .database import Base
 
 def generate_uuid():
@@ -27,6 +28,32 @@ def generate_uuid():
         str: A new UUID in string format
     """
     return str(uuid.uuid4())
+
+class PaymentStatus(enum.Enum):
+    """
+    Enum for payment status values.
+    
+    Attributes:
+        PENDING: Payment has been created but not confirmed by the recipient
+        CONFIRM: Payment has been confirmed by the recipient
+        INACTIVE: Payment has been rejected or cancelled
+    """
+    PENDING = "PENDING"
+    CONFIRM = "CONFIRM"
+    INACTIVE = "INACTIVE"
+
+class Language(enum.Enum):
+    """
+    Enum for language preference.
+    
+    Attributes:
+        EN: English
+        ES: Spanish
+        FR: French
+    """
+    EN = "EN"
+    ES = "ES"
+    FR = "FR"
 
 # Many-to-many association table between expenses and members
 expense_member_association = Table(
@@ -68,6 +95,7 @@ class Member(Base):
         name (str): Name of the member
         telegram_id (str): Telegram ID used for authentication
         family_id (str): ID of the family this member belongs to
+        language (Language): Preferred language for notifications and interface
         created_at (datetime): When the member was created
         family (relationship): The family this member belongs to
         expenses_paid (relationship): Expenses paid by this member
@@ -81,6 +109,7 @@ class Member(Base):
     name = Column(String, index=True)
     telegram_id = Column(String, unique=True, index=True)
     family_id = Column(String(36), ForeignKey("families.id"))
+    language = Column(Enum(Language), default=Language.EN, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
@@ -128,6 +157,7 @@ class Payment(Base):
         from_member_id (str): ID of the member sending the payment
         to_member_id (str): ID of the member receiving the payment
         amount (float): The monetary amount of the payment
+        status (PaymentStatus): Current status of the payment
         family_id (str): ID of the family this payment belongs to
         created_at (datetime): When the payment was created
         from_member (relationship): The member sending the payment
@@ -140,6 +170,7 @@ class Payment(Base):
     from_member_id = Column(String(36), ForeignKey("members.id"))
     to_member_id = Column(String(36), ForeignKey("members.id"))
     amount = Column(Float)
+    status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False)
     family_id = Column(String(36), ForeignKey("families.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

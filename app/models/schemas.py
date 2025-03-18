@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 import enum
+from app.models.models import Language as DBLanguage
 
 # Authentication schemas
 class Token(BaseModel):
@@ -35,6 +36,20 @@ class TokenData(BaseModel):
     """
     username: Optional[str] = None
 
+# Language enum for Pydantic models
+class Language(str, enum.Enum):
+    """
+    Enum for language preference.
+    
+    Attributes:
+        EN: English
+        ES: Spanish
+        FR: French
+    """
+    EN = "EN"
+    ES = "ES"
+    FR = "FR"
+
 # Member schemas
 class MemberBase(BaseModel):
     """
@@ -43,9 +58,11 @@ class MemberBase(BaseModel):
     Attributes:
         name (str): Name of the member
         telegram_id (str): Telegram ID used for authentication
+        language (Language): Preferred language for notifications and interface
     """
     name: str
     telegram_id: str
+    language: Language = Language.EN
 
 class MemberCreate(MemberBase):
     """
@@ -62,9 +79,11 @@ class MemberUpdate(BaseModel):
     Attributes:
         name (Optional[str]): New name for the member
         telegram_id (Optional[str]): New Telegram ID for the member
+        language (Optional[Language]): New preferred language for the member
     """
     name: Optional[str] = None
     telegram_id: Optional[str] = None
+    language: Optional[Language] = None
 
 class Member(MemberBase):
     """
