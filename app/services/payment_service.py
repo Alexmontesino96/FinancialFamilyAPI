@@ -76,7 +76,7 @@ class PaymentService:
         
         # Find the debt to the recipient
         for debt in payer_balance.debts:
-            if debt.to == recipient_name:
+            if debt.to_name == recipient_name:
                 debt_amount = debt.amount
                 break
         
@@ -88,7 +88,7 @@ class PaymentService:
             if recipient_balance:
                 # Verificar si el receptor tiene deudas con el pagador
                 for debt in recipient_balance.debts:
-                    if debt.to == from_member.name:
+                    if debt.to_name == from_member.name:
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
                             detail=f"El receptor {recipient_name} debe ${debt.amount:.2f} al pagador {from_member.name}. No puedes realizar un pago en esta dirección."
