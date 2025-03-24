@@ -114,8 +114,8 @@ class PaymentService:
         db_payment = Payment(
             from_member_id=payment.from_member,
             to_member_id=payment.to_member,
-            amount=payment.amount
-            # status se establecerá al valor predeterminado (CONFIRM) de la base de datos
+            amount=payment.amount,
+            status=PaymentStatus.PENDING
         )
         
         # Use provided family_id or get it from the paying member
