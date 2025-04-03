@@ -3,6 +3,7 @@ from app.models.models import Payment, Member, PaymentStatus
 from app.models.schemas import PaymentCreate, PaymentUpdate
 from fastapi import HTTPException, status
 import logging
+from sqlalchemy.orm import joinedload
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -289,8 +290,32 @@ class PaymentService:
         Returns:
             Payment: The deleted payment or None if not found
         """
-        db_payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        # Find the payment and eagerly load related members
+        db_payment = db.query(Payment).options(
+            joinedload(Payment.from_member),
+            joinedload(Payment.to_member)
+        ).filter(Payment.id == payment_id).first()
+
         if db_payment:
+            # Store a copy of the data needed for the response before deleting
+            payment_response_data = {
+                "id": db_payment.id,
+                "from_member": db_payment.from_member,
+                "to_member": db_payment.to_member,
+                "amount": db_payment.amount,
+                "status": db_payment.status,
+                "family_id": db_payment.family_id,
+                "created_at": db_payment.created_at
+            }
+
+            # Delete the payment object
             db.delete(db_payment)
             db.commit()
-        return db_payment 
+
+            # Return the stored data, not the detached object
+            # We need to manually construct an object that matches the schema if needed,
+            # but FastAPI should handle dict serialization correctly for the response.
+            # Using the Payment schema directly might require re-creating the object.
+            return payment_response_data # Return the dict
+        else:
+            return None # Or raise HTTPException(404) if preferred 

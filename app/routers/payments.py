@@ -31,8 +31,8 @@ def create_payment(
     """
     Create a new payment.
     
-    Creates a payment between two members of a family. The payment is initially set to status CONFIRM
-    and immediately affects balance calculations.
+    Creates a payment between two members of a family. The payment is initially set to status PENDING
+    and must be confirmed by the recipient before it affects balance calculations.
     
     Args:
         payment: Payment data to create (from_member, to_member, amount)
@@ -40,7 +40,7 @@ def create_payment(
         db: Database session
         
     Returns:
-        Payment: The created payment with status CONFIRM
+        Payment: The created payment with status PENDING
         
     Raises:
         HTTPException: If the user doesn't have permission to create payments for these members,
@@ -183,7 +183,7 @@ def get_family_payments(
     
     return PaymentService.get_payments_by_family(db, family_id)
 
-@router.delete("/{payment_id}", response_model=Payment)
+@router.delete("/{payment_id}", response_model=Dict[str, Any])
 def delete_payment(
     payment_id: str,
     telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
@@ -198,11 +198,12 @@ def delete_payment(
         db: Database session
         
     Returns:
-        Payment: The deleted payment
+        Dict[str, Any]: A dictionary confirming the deletion and providing details.
         
     Raises:
         HTTPException: If the payment is not found or the user doesn't have permission to delete it
     """
+    # We fetch the payment first mainly for permission checks
     payment = PaymentService.get_payment(db, payment_id)
     if not payment:
         raise HTTPException(
@@ -213,16 +214,26 @@ def delete_payment(
     # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
     if telegram_id:
         requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        from_member = MemberService.get_member(db, payment.from_member)
-        to_member = MemberService.get_member(db, payment.to_member)
-        
-        if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id:
+        # Need to ensure related members are loaded for permission check
+        # This get_payment call might not load them eagerly, consider modifying if needed.
+        # For now, assuming the loaded payment object has IDs accessible.
+        if not requesting_member or not payment.family_id or requesting_member.family_id != payment.family_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to delete this payment"
             )
+            
+    # Call the service to delete the payment, which now returns a dict
+    deleted_payment_data = PaymentService.delete_payment(db, payment_id)
     
-    return PaymentService.delete_payment(db, payment_id)
+    if deleted_payment_data:
+        return {"status": "success", "message": "Payment deleted successfully", "deleted_payment": deleted_payment_data}
+    else:
+        # This case might not be reachable if get_payment already checked
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment could not be deleted or was not found"
+        )
 
 @router.get("/diagnostics/{family_id}", response_model=Dict[str, Any])
 def diagnose_payment_issues(
