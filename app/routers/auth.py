@@ -1,69 +1,64 @@
 """
-Authentication Router
+Auth Router
 
-This module defines the authentication endpoints for the API.
-It provides routes for obtaining JWT access tokens using Telegram IDs.
+This module defines the endpoints for authentication in the API.
+It provides routes for validating user credentials and generating token for members.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import timedelta
-from typing import Any
+import logging
 
-from app.auth.auth import authenticate_member, create_access_token
 from app.models.database import get_db
 from app.models.schemas import Token
+from app.services.member_service import MemberService
+from app.services.token_service import create_access_token
+from app.utils.logging_config import get_logger
 
 router = APIRouter(
     prefix="/auth",
     tags=["auth"],
-    responses={401: {"description": "Unauthorized"}},
+    responses={404: {"description": "Not found"}},
 )
 
+logger = get_logger(__name__)
+
 @router.post("/token", response_model=Token)
-async def login_for_access_token(
+def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
-) -> Any:
+):
     """
-    Get an access token for authentication.
-    
-    This endpoint authenticates a member using their Telegram ID and issues a JWT token.
-    The username field should contain the Telegram ID of the member.
-    The password field can be any value, as authentication is based solely on the Telegram ID.
+    Generate an access token for a member.
     
     Args:
-        form_data (OAuth2PasswordRequestForm): Form containing username (Telegram ID) and password
-        db (Session): Database session
-    
+        form_data: OAuth2 form with username and password
+        db: Database session
+        
     Returns:
-        Token: Object containing the access token and token type
+        Token: An OAuth2 compatible token
         
     Raises:
-        HTTPException: If authentication fails (Telegram ID not found)
-    
-    Example:
-        ```
-        curl -X POST "http://localhost:8007/auth/token" \
-             -H "Content-Type: application/x-www-form-urlencoded" \
-             -d "username=123456789&password=any_value"
-        ```
+        HTTPException: If authentication fails
     """
-    # Authenticate the member by Telegram ID
-    member = authenticate_member(form_data.username, db)
+    logger.info(f"Auth attempt for username: {form_data.username}")
+    
+    # Buscar al miembro por su telegram_id (que usamos como username)
+    member = MemberService.get_member_by_telegram_id(db, form_data.username)
+    
+    # La autenticación actual usa solo telegram_id sin verificar contraseña
+    # En un sistema real, se debe verificar la contraseña aquí
     if not member:
+        logger.warning(f"Authentication failed for username: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Telegram ID",
+            detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Create access token with 30-minute expiration
-    access_token_expires = timedelta(minutes=30)
-    access_token = create_access_token(
-        data={"sub": member.telegram_id}, expires_delta=access_token_expires
-    )
+    # Crear un token de acceso usando el telegram_id como sub (subject)
+    access_token = create_access_token(data={"sub": member.telegram_id})
     
-    # Return token response
+    logger.info(f"Authentication successful for username: {form_data.username}")
     return {"access_token": access_token, "token_type": "bearer"} 
