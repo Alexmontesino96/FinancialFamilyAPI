@@ -1,0 +1,33 @@
+name: family-finance-api
+region: nyc
+services:
+  - name: api
+    github:
+      branch: main
+      deploy_on_push: true
+    build_command: pip install -r requirements.txt
+    run_command: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level debug
+    http_port: 8000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: SECRET_KEY
+        value: "${SECRET_KEY}"
+        type: SECRET
+      - key: ALGORITHM
+        value: "HS256"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: DATABASE_URL
+        value: "${DATABASE_URL}"
+        type: SECRET
+    log_destination:
+      papertrail:
+        endpoint: "logs.papertrailapp.com:12345"  # Reemplaza con tu endpoint específico
+    health_check:
+      http_path: /
+    error_config:
+      include_error_traces: true
+    start_command: |
+      mkdir -p logs
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level debug 
