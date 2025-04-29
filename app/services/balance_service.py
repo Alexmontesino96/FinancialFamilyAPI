@@ -3,10 +3,10 @@ from sqlalchemy import func, and_
 from app.models.models import Family, Member, Expense, Payment, PaymentStatus
 from app.models.schemas import MemberBalance, DebtDetail, CreditDetail
 from typing import List, Dict, Set, Tuple
-import logging
+from app.utils.logging_config import get_logger
 
-# Configurar logging
-logger = logging.getLogger(__name__)
+# Configurar logging centralizado
+logger = get_logger("balance_service")
 
 class BalanceService:
     """

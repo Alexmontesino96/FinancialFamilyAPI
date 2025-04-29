@@ -24,13 +24,11 @@ from dotenv import load_dotenv
 from app.models.database import engine, Base
 from app.routers import families, members, expenses, payments, auth, test_errors
 from app.middlewares.http_exception_handler import http_exception_handler, validation_exception_handler
+from app.utils.logging_config import setup_logging, get_logger
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Configurar el sistema de logging centralizado
+setup_logging(level=logging.INFO)
+logger = get_logger("main")
 
 # Load environment variables from .env file
 load_dotenv()
@@ -177,6 +175,7 @@ def read_root():
     Returns:
         dict: A welcome message
     """
+    logger.debug("Root endpoint accessed")
     return {"message": "Welcome to the Family Finance API"}
 
 # Run the application when executed directly
@@ -188,4 +187,5 @@ if __name__ == "__main__":
     port = int(os.getenv("API_PORT", "8007"))
     
     # Start the uvicorn server with hot-reload enabled for development
+    logger.info(f"Starting server on {host}:{port}")
     uvicorn.run("main:app", host=host, port=port, reload=True) 

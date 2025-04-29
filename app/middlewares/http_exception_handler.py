@@ -9,10 +9,10 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
 from typing import Dict, Any, Union, List
-import logging
+from app.utils.logging_config import get_logger
 
-# Configure logging
-logger = logging.getLogger(__name__)
+# Usar nuestro sistema de logging centralizado
+logger = get_logger("http_exception_handler")
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """
@@ -27,6 +27,10 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     """
     logger.warning(f"HTTP exception: {exc.status_code} - {exc.detail}")
     logger.warning(f"Request path: {request.url.path}")
+    logger.warning(f"Request method: {request.method}")
+    
+    # Log headers only in debug level
+    logger.debug(f"Request headers: {request.headers}")
     
     return JSONResponse(
         status_code=exc.status_code,
@@ -57,8 +61,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         }
         errors.append(error_detail)
     
-    logger.warning(f"Validation error: {errors}")
-    logger.warning(f"Request path: {request.url.path}")
+    logger.warning(f"Validation error on {request.url.path}: {errors}")
+    logger.debug(f"Request method: {request.method}")
+    
+    try:
+        # Log request body if available (useful for debugging validation errors)
+        body = await request.body()
+        if body:
+            body_text = body.decode('utf-8', errors='replace')
+            logger.debug(f"Request body: {body_text}")
+    except Exception as e:
+        logger.debug(f"Could not read request body: {str(e)}")
     
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
