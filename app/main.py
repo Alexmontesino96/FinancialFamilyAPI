@@ -24,10 +24,9 @@ from dotenv import load_dotenv
 from app.models.database import engine, Base
 from app.routers import families, members, expenses, payments, auth, test_errors
 from app.middlewares.http_exception_handler import http_exception_handler, validation_exception_handler
-from app.utils.logging_config import setup_logging, get_logger
+from app.utils.logging_config import get_logger
 
-# Configurar el sistema de logging centralizado
-setup_logging(level=logging.INFO)
+# Configurar logging
 logger = get_logger("main")
 
 # Load environment variables from .env file
