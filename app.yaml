@@ -20,4 +20,14 @@ services:
         value: "30"
       - key: DATABASE_URL
         value: "${DATABASE_URL}"
-        type: SECRET 
+        type: SECRET
+    log_destination:
+      papertrail:
+        endpoint: "logs.papertrailapp.com:12345"  # Reemplaza con tu endpoint específico
+    health_check:
+      http_path: /
+    error_config:
+      include_error_traces: true
+    start_command: |
+      mkdir -p logs
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level debug 

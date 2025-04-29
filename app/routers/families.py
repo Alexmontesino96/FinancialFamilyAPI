@@ -227,3 +227,68 @@ def get_family_balances(
         print(f"WARNING: Inconsistent balances detected for family {family_id}")
     
     return balances 
+
+@router.delete("/{family_id}", status_code=status.HTTP_200_OK)
+def delete_family(
+    family_id: str,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    confirm: bool = Query(False, description="Confirm deletion"),
+    db: Session = Depends(get_db)
+):
+    """
+    Eliminar una familia y todos sus datos relacionados.
+    
+    ¡ADVERTENCIA! Esta operación es destructiva y elimina permanentemente:
+    - Todos los pagos asociados a la familia
+    - Todos los gastos asociados a la familia
+    - Todos los miembros de la familia
+    - La familia en sí
+    
+    Args:
+        family_id: ID de la familia a eliminar
+        telegram_id: ID de Telegram opcional para validación de permisos
+        confirm: Debe establecerse como True para confirmar la eliminación
+        db: Sesión de base de datos
+        
+    Returns:
+        dict: Información sobre el resultado de la operación
+        
+    Raises:
+        HTTPException: Si la familia no se encuentra, el usuario no tiene permisos,
+                       o la operación no está confirmada
+    """
+    # Verificar que la operación está confirmada
+    if not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Esta operación es destructiva. Confirme la eliminación estableciendo confirm=true"
+        )
+    
+    # Verificar que la familia existe
+    family = FamilyService.get_family(db, family_id)
+    if not family:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Familia no encontrada"
+        )
+    
+    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la familia
+    if telegram_id:
+        member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        
+        if not member or member.family_id != family_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para eliminar esta familia"
+            )
+    
+    # Eliminar la familia y sus datos relacionados
+    result = FamilyService.delete_family(db, family_id)
+    
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result["message"]
+        )
+    
+    return result 

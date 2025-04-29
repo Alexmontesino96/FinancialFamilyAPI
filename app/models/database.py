@@ -18,9 +18,12 @@ from dotenv import load_dotenv
 load_dotenv()
   
 # Get database URL from environment variables with a default fallback
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 if not DATABASE_URL:
     raise ValueError("No DATABASE_URL set in environment variables. This is required for database connection.")
+
+# Limpiar la URL de posibles caracteres de nueva línea u otros caracteres no deseados
+DATABASE_URL = DATABASE_URL.strip()
 
 # Create database engine with the configured URL
 engine = create_engine(DATABASE_URL)
