@@ -3,6 +3,7 @@ from sqlalchemy import func, and_
 from app.models.models import Family, Member, Expense, Payment, PaymentStatus, PaymentType, MemberBalanceCache, DebtCache
 from app.models.schemas import MemberBalance, DebtDetail, CreditDetail
 from typing import List, Dict, Set, Tuple
+import time
 from app.utils.logging_config import get_logger
 
 # Configurar logging centralizado
@@ -656,14 +657,20 @@ class BalanceService:
                 return BalanceService.calculate_family_balances(db, family_id)
         
         # Intentar obtener del caché
+        start_time = time.time()
         cached_balances = BalanceService.get_cached_balances(db, family_id)
         
         # Si no hay caché completo, inicializarlo y retornar
         if not cached_balances:
             logger.info(f"No hay caché disponible para familia: {family_id}, inicializando")
             BalanceService.initialize_balance_cache(db, family_id)
-            return BalanceService.get_cached_balances(db, family_id)
+            cached_balances = BalanceService.get_cached_balances(db, family_id)
+            logger.info(f"Caché inicializado para familia: {family_id}")
+            return cached_balances
         
+        end_time = time.time()
+        duration_ms = int((end_time - start_time) * 1000)
+        logger.info(f"🚀 USANDO CACHÉ: Balances obtenidos del caché para familia: {family_id} en {duration_ms}ms")
         return cached_balances
     
     @staticmethod
