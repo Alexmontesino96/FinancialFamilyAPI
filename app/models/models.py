@@ -42,6 +42,17 @@ class PaymentStatus(enum.Enum):
     CONFIRM = "CONFIRM"
     INACTIVE = "INACTIVE"
 
+class PaymentType(enum.Enum):
+    """
+    Enum for payment type values.
+    
+    Attributes:
+        PAYMENT: Regular payment from a debtor to a creditor
+        ADJUSTMENT: Debt adjustment (forgiveness) from a creditor to a debtor
+    """
+    PAYMENT = "PAYMENT"
+    ADJUSTMENT = "ADJUSTMENT"
+
 class Language(enum.Enum):
     """
     Enum for language preference.
@@ -158,6 +169,7 @@ class Payment(Base):
         to_member_id (str): ID of the member receiving the payment
         amount (float): The monetary amount of the payment
         status (PaymentStatus): Current status of the payment
+        payment_type (PaymentType): Type of payment (regular payment or debt adjustment)
         family_id (str): ID of the family this payment belongs to
         created_at (datetime): When the payment was created
         from_member (relationship): The member sending the payment
@@ -171,6 +183,7 @@ class Payment(Base):
     to_member_id = Column(String(36), ForeignKey("members.id"))
     amount = Column(Float)
     status = Column(Enum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False)
+    payment_type = Column(Enum(PaymentType), default=PaymentType.PAYMENT, nullable=False)
     family_id = Column(String(36), ForeignKey("families.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -178,3 +191,74 @@ class Payment(Base):
     from_member = relationship("Member", foreign_keys=[from_member_id], back_populates="payments_made")
     to_member = relationship("Member", foreign_keys=[to_member_id], back_populates="payments_received")
     family = relationship("Family", back_populates="payments") 
+
+class MemberBalanceCache(Base):
+    """
+    Caché de balances de miembros para evitar recálculos costosos.
+    
+    Attributes:
+        id (str): Identificador único
+        member_id (str): ID del miembro
+        family_id (str): ID de la familia
+        total_debt (float): Deuda total del miembro
+        total_owed (float): Total que le deben al miembro
+        net_balance (float): Balance neto (total_owed - total_debt)
+        last_updated (datetime): Última vez que se actualizó el caché
+    """
+    __tablename__ = "member_balance_cache"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid, index=True)
+    member_id = Column(String(36), ForeignKey("members.id"), index=True)
+    family_id = Column(String(36), ForeignKey("families.id"), index=True)
+    total_debt = Column(Float, default=0.0)
+    total_owed = Column(Float, default=0.0)
+    net_balance = Column(Float, default=0.0)
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    member = relationship("Member")
+    family = relationship("Family")
+    debts = relationship("DebtCache", 
+                        foreign_keys="DebtCache.from_member_id", 
+                        primaryjoin="and_(MemberBalanceCache.member_id==DebtCache.from_member_id, "
+                                   "MemberBalanceCache.family_id==DebtCache.family_id)", 
+                        back_populates="debtor")
+    credits = relationship("DebtCache", 
+                          foreign_keys="DebtCache.to_member_id", 
+                          primaryjoin="and_(MemberBalanceCache.member_id==DebtCache.to_member_id, "
+                                     "MemberBalanceCache.family_id==DebtCache.family_id)", 
+                          back_populates="creditor")
+
+class DebtCache(Base):
+    """
+    Caché de deudas específicas entre miembros.
+    
+    Attributes:
+        id (str): Identificador único
+        family_id (str): ID de la familia
+        from_member_id (str): ID del miembro deudor
+        to_member_id (str): ID del miembro acreedor
+        amount (float): Cantidad de la deuda
+        last_updated (datetime): Última vez que se actualizó el caché
+    """
+    __tablename__ = "debt_cache"
+    
+    id = Column(String(36), primary_key=True, default=generate_uuid, index=True)
+    family_id = Column(String(36), ForeignKey("families.id"), index=True)
+    from_member_id = Column(String(36), ForeignKey("members.id"), index=True)  # deudor
+    to_member_id = Column(String(36), ForeignKey("members.id"), index=True)    # acreedor
+    amount = Column(Float, default=0.0)
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    family = relationship("Family")
+    debtor = relationship("MemberBalanceCache", 
+                          foreign_keys=[from_member_id], 
+                          primaryjoin="and_(DebtCache.from_member_id==MemberBalanceCache.member_id, "
+                                     "DebtCache.family_id==MemberBalanceCache.family_id)", 
+                          back_populates="debts")
+    creditor = relationship("MemberBalanceCache", 
+                            foreign_keys=[to_member_id], 
+                            primaryjoin="and_(DebtCache.to_member_id==MemberBalanceCache.member_id, "
+                                       "DebtCache.family_id==MemberBalanceCache.family_id)", 
+                            back_populates="credits")

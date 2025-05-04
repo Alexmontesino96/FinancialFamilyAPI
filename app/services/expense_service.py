@@ -1,6 +1,11 @@
 from sqlalchemy.orm import Session
 from app.models.models import Expense, Member
 from app.models.schemas import ExpenseCreate, ExpenseUpdate
+from app.services.balance_service import BalanceService
+from app.utils.logging_config import get_logger
+
+# Usar nuestro sistema de logging centralizado
+logger = get_logger("expense_service")
 
 class ExpenseService:
     """
@@ -25,30 +30,52 @@ class ExpenseService:
         Note:
             If split_among is not specified, the expense is split among all family members.
         """
+        logger.info(f"Iniciando creación de gasto: descripción='{expense.description}', monto=${expense.amount:.2f}, pagador={expense.paid_by}")
+        
         # Create the expense without the split_among field first
         db_expense = Expense(
             description=expense.description,
             amount=expense.amount,
             paid_by=expense.paid_by
         )
+        logger.debug(f"Objeto de gasto creado en memoria: id temporal={id(db_expense)}")
         
         # Get the family of the paying member
+        logger.debug(f"Obteniendo información de familia para el pagador: {expense.paid_by}")
         payer = db.query(Member).filter(Member.id == expense.paid_by).first()
         if payer:
+            logger.debug(f"Pagador encontrado: {payer.name}, familia={payer.family_id}")
             db_expense.family_id = payer.family_id
             
             # If split_among is not specified, split among all family members
             if not expense.split_among:
+                logger.debug(f"No se especificaron miembros para dividir el gasto, usando todos los miembros de la familia")
                 # Get all family members
                 family_members = db.query(Member).filter(Member.family_id == payer.family_id).all()
+                logger.debug(f"Dividiendo gasto entre {len(family_members)} miembros de la familia")
                 db_expense.split_among = family_members
             else:
+                logger.debug(f"Dividiendo gasto entre los miembros especificados: {expense.split_among}")
                 # Use the specified members
                 members = db.query(Member).filter(Member.id.in_(expense.split_among)).all()
+                logger.debug(f"Se encontraron {len(members)} miembros de {len(expense.split_among)} especificados")
                 db_expense.split_among = members
+        else:
+            logger.error(f"No se encontró el pagador con ID: {expense.paid_by}")
         
+        logger.debug("Guardando gasto en la base de datos")
         db.add(db_expense)
         db.commit()
+        logger.info(f"Gasto guardado en la base de datos con ID: {db_expense.id}")
+        
+        # Actualizar el caché de balances para este gasto
+        logger.debug(f"Iniciando actualización de caché para gasto ID: {db_expense.id}")
+        try:
+            BalanceService.update_cached_balances_for_expense(db, db_expense)
+            logger.info(f"Caché de balances actualizado exitosamente para gasto ID: {db_expense.id}")
+        except Exception as e:
+            logger.error(f"Error al actualizar caché de balances para gasto ID: {db_expense.id}. Error: {str(e)}")
+            # No elevamos la excepción para no impedir la creación del gasto si hay problemas con el caché
         db.refresh(db_expense)
         return db_expense
     

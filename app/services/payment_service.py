@@ -1,9 +1,10 @@
 from sqlalchemy.orm import Session
-from app.models.models import Payment, Member, PaymentStatus
+from app.models.models import Payment, Member, PaymentStatus, PaymentType
 from app.models.schemas import PaymentCreate, PaymentUpdate
 from fastapi import HTTPException, status
 from sqlalchemy.orm import joinedload
 from app.utils.logging_config import get_logger
+from app.services.balance_service import BalanceService
 
 # Usar nuestro sistema de logging centralizado
 logger = get_logger("payment_service")
@@ -128,7 +129,8 @@ class PaymentService:
             from_member_id=payment.from_member,
             to_member_id=payment.to_member,
             amount=payment.amount,
-            status=PaymentStatus.PENDING
+            status=PaymentStatus.PENDING,
+            payment_type=PaymentType.PAYMENT  # Tipo de pago normal
         )
         
         # Use provided family_id or get it from the paying member
@@ -212,6 +214,10 @@ class PaymentService:
         db_payment.status = PaymentStatus.CONFIRM
         
         db.commit()
+        
+        # Actualizar el caché de balances para este pago
+        BalanceService.update_cached_balances_for_payment(db, db_payment)
+        
         db.refresh(db_payment)
         logger.info(f"Payment confirmed successfully: id={payment_id}")
         return db_payment
@@ -320,6 +326,133 @@ class PaymentService:
         
         logger.info(f"Found {len(payments)} payments for family {family_id}")
         return payments
+        
+    @staticmethod
+    def create_debt_adjustment(db: Session, adjustment: PaymentCreate, family_id: str = None):
+        """
+        Crea un ajuste de deuda que permite a un miembro (acreedor) reducir parcialmente 
+        la deuda que otro miembro (deudor) tiene hacia él.
+        
+        Args:
+            db: Database session
+            adjustment: Datos del ajuste de deuda a crear
+            family_id: Optional family ID. Si no se proporciona, se obtiene del miembro.
+            
+        Returns:
+            Payment: El ajuste de deuda creado
+            
+        Note:
+            Esta función permite a un acreedor perdonar parcialmente la deuda de un deudor.
+            Valida que el monto no exceda la deuda actual y actualiza los balances correctamente.
+        """
+        logger.info(f"Creando ajuste de deuda: de={adjustment.from_member}, a={adjustment.to_member}, monto=${adjustment.amount:.2f}")
+        
+        # Obtener el family_id si no se proporcionó
+        if not family_id:
+            logger.debug(f"No se proporcionó family_id, obteniendo del miembro acreedor")
+            from_member = db.query(Member).filter(Member.id == adjustment.from_member).first()
+            if from_member:
+                family_id = from_member.family_id
+                logger.debug(f"Usando family_id {family_id} del miembro acreedor")
+            else:
+                logger.error(f"Miembro no encontrado con ID: {adjustment.from_member}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Miembro no encontrado"
+                )
+        
+        # Obtener información sobre los miembros involucrados
+        from_member = db.query(Member).filter(Member.id == adjustment.from_member).first()
+        to_member = db.query(Member).filter(Member.id == adjustment.to_member).first()
+        
+        if not from_member or not to_member:
+            logger.error(f"Uno o ambos miembros no encontrados: from_member={adjustment.from_member}, to_member={adjustment.to_member}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Uno o ambos miembros no encontrados"
+            )
+            
+        logger.info(f"Validando ajuste de deuda entre {from_member.name} y {to_member.name} por ${adjustment.amount:.2f}")
+        
+        # Calcular balances actuales para verificar la deuda
+        # Usar el nuevo método que aprovecha el caché si está disponible
+        balances = BalanceService.get_family_balances(db, family_id, use_cache=True)
+        
+        # Encontrar el balance del deudor (to_member)
+        debtor_balance = next((b for b in balances if b.member_id == adjustment.to_member), None)
+        
+        if not debtor_balance:
+            logger.error(f"Deudor no encontrado en los balances familiares: member_id={adjustment.to_member}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Deudor no encontrado en los balances familiares"
+            )
+        
+        # Verificar si el deudor debe dinero al acreedor
+        creditor_name = from_member.name
+        debt_amount = 0.0
+        
+        # Buscar la deuda del deudor hacia el acreedor
+        for debt in debtor_balance.debts:
+            if debt.to_name == creditor_name:
+                debt_amount = debt.amount
+                logger.debug(f"Deuda encontrada: {to_member.name} debe ${debt_amount:.2f} a {creditor_name}")
+                break
+        
+        # Si no hay deuda directa, verificar si hay una deuda en la dirección contraria
+        if debt_amount == 0:
+            logger.debug(f"No se encontró deuda directa de {to_member.name} a {creditor_name}, verificando dirección contraria")
+            # Verificar si el acreedor debe dinero al deudor (caso en que el ajuste no tendría sentido)
+            creditor_balance = next((b for b in balances if b.member_id == adjustment.from_member), None)
+            
+            if creditor_balance:
+                # Verificar si el acreedor tiene deudas con el deudor
+                for debt in creditor_balance.debts:
+                    if debt.to_name == to_member.name:
+                        logger.warning(f"Deuda inversa detectada: {creditor_name} debe ${debt.amount:.2f} a {to_member.name}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"El acreedor {creditor_name} debe ${debt.amount:.2f} al deudor {to_member.name}. No puedes realizar un ajuste de deuda en esta dirección."
+                        )
+        
+        # Si no hay deuda en ninguna dirección
+        if debt_amount == 0:
+            logger.warning(f"No se encontró deuda en ninguna dirección entre {to_member.name} y {creditor_name}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"No hay deuda pendiente de {to_member.name} hacia {creditor_name}"
+            )
+        
+        # Verificar si el monto del ajuste excede la deuda
+        if adjustment.amount > debt_amount:
+            logger.warning(f"El monto del ajuste (${adjustment.amount:.2f}) excede la deuda (${debt_amount:.2f})")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El monto del ajuste (${adjustment.amount:.2f}) excede la deuda actual (${debt_amount:.2f})"
+            )
+        
+        logger.info(f"Ajuste validado: ${adjustment.amount:.2f} de {to_member.name} a {creditor_name}, deuda actual: ${debt_amount:.2f}")
+        
+        # Crear el ajuste de deuda como un pago con status CONFIRM y tipo ADJUSTMENT
+        db_adjustment = Payment(
+            from_member_id=adjustment.from_member,  # El acreedor
+            to_member_id=adjustment.to_member,      # El deudor
+            amount=adjustment.amount,
+            description=adjustment.description if adjustment.description else "Ajuste de deuda",
+            family_id=family_id,
+            status=PaymentStatus.CONFIRM,  # Ajustes no requieren confirmación
+            payment_type=PaymentType.ADJUSTMENT  # Marcar como ajuste de deuda
+        )
+        
+        db.add(db_adjustment)
+        db.commit()
+        
+        # Actualizar el caché de balances para este ajuste de deuda
+        BalanceService.update_cached_balances_for_payment(db, db_adjustment)
+        
+        db.refresh(db_adjustment)
+        logger.info(f"Ajuste de deuda creado exitosamente con ID: {db_adjustment.id}")
+        return db_adjustment
     
     @staticmethod
     def delete_payment(db: Session, payment_id: str):
