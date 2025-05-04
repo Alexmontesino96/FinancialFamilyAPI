@@ -81,6 +81,63 @@ def create_payment(
             detail=f"Error al procesar el pago: {str(e)}"
         )
 
+@router.post("/debt-adjustment/", response_model=Payment, status_code=status.HTTP_201_CREATED)
+def create_debt_adjustment(
+    adjustment: PaymentCreate,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID del usuario"),
+    db: Session = Depends(get_db)
+):
+    """
+    Crea un ajuste de deuda.
+    
+    Permite a un miembro (acreedor) reducir parcialmente la deuda que 
+    otro miembro (deudor) tiene hacia él. El ajuste de deuda se establece 
+    directamente con estado CONFIRM, por lo que afecta inmediatamente
+    a los cálculos de saldo sin requerir confirmación adicional.
+    
+    Args:
+        adjustment: Datos del ajuste a crear (from_member, to_member, amount)
+        telegram_id: ID de Telegram opcional para validación de permisos
+        db: Sesión de base de datos
+        
+    Returns:
+        Payment: El ajuste de deuda creado con estado CONFIRM
+        
+    Raises:
+        HTTPException: Si el usuario no tiene permiso para crear ajustes para estos miembros,
+                     si el monto del ajuste excede la deuda, o si no hay deuda en esa dirección
+    """
+    logger.info(f"Solicitud para crear ajuste de deuda: de {adjustment.from_member} a {adjustment.to_member}, monto: {adjustment.amount}")
+    
+    # Si se proporciona un telegram_id, verificar que el usuario pertenezca a la misma familia que los miembros del ajuste
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        from_member = MemberService.get_member(db, adjustment.from_member)
+        to_member = MemberService.get_member(db, adjustment.to_member)
+        
+        if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id or from_member.family_id != to_member.family_id:
+            logger.warning(f"Permiso denegado para telegram_id: {telegram_id} para crear ajuste entre miembros: {adjustment.from_member}, {adjustment.to_member}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para crear ajustes de deuda entre estos miembros"
+            )
+    
+    try:
+        # Intentar crear el ajuste de deuda - aquí se validará si el monto excede la deuda
+        created_adjustment = PaymentService.create_debt_adjustment(db, adjustment)
+        logger.info(f"Ajuste de deuda creado exitosamente con ID: {created_adjustment.id}")
+        return created_adjustment
+    except HTTPException as e:
+        # Reenviar la excepción HTTP sin modificarla
+        raise
+    except Exception as e:
+        # Para otros errores, enviar un mensaje genérico
+        logger.error(f"Error al procesar el ajuste de deuda: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al procesar el ajuste de deuda: {str(e)}"
+        )
+
 @router.get("/{payment_id}", response_model=Payment)
 def get_payment(
     payment_id: str,
@@ -129,12 +186,12 @@ def get_payment(
 
 @router.get("/member/{member_id}", response_model=List[Payment])
 def get_member_payments(
-    member_id: int,
+    member_id: str,
     telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
     db: Session = Depends(get_db)
 ):
     """
-    Get payments for a specific member.
+    Get regular payments for a specific member.
     
     Args:
         member_id: ID of the member to get payments for
@@ -142,19 +199,20 @@ def get_member_payments(
         db: Database session
         
     Returns:
-        List[Payment]: List of payments involving the member
+        List[Payment]: List of regular payments involving the member
         
     Raises:
         HTTPException: If the member is not found or the user doesn't have permission to view the payments
     """
-    logger.info(f"Request to get payments for member: {member_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request for member payments: member_id={member_id}, requested by telegram_id: {telegram_id}")
     
+    # Get the member
     member = MemberService.get_member(db, member_id)
     if not member:
-        logger.warning(f"Member not found with ID: {member_id}")
+        logger.warning(f"Member not found: id={member_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Member not found"
+            detail="Miembro no encontrado"
         )
     
     # If a telegram_id is provided, verify that the user belongs to the same family
@@ -165,12 +223,60 @@ def get_member_payments(
             logger.warning(f"Permission denied for telegram_id: {telegram_id} to view payments for member: {member_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to view this member's payments"
+                detail="No tienes permiso para ver los pagos de este miembro"
             )
     
+    # Get the regular payments only
     payments = PaymentService.get_payments_by_member(db, member_id)
-    logger.info(f"Retrieved {len(payments)} payments for member: {member_id}")
+    logger.info(f"Returning {len(payments)} regular payments for member: {member_id}")
     return payments
+
+@router.get("/member/{member_id}/adjustments", response_model=List[Payment])
+def get_member_adjustments(
+    member_id: str,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get debt adjustments for a specific member.
+    
+    Args:
+        member_id: ID of the member to get debt adjustments for
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        List[Payment]: List of debt adjustments involving the member
+        
+    Raises:
+        HTTPException: If the member is not found or the user doesn't have permission to view the adjustments
+    """
+    logger.info(f"Request for member debt adjustments: member_id={member_id}, requested by telegram_id: {telegram_id}")
+    
+    # Get the member
+    member = MemberService.get_member(db, member_id)
+    if not member:
+        logger.warning(f"Member not found: id={member_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Miembro no encontrado"
+        )
+    
+    # If a telegram_id is provided, verify that the user belongs to the same family
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        
+        if not requesting_member or requesting_member.family_id != member.family_id:
+            logger.warning(f"Permission denied for telegram_id: {telegram_id} to view adjustments for member: {member_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para ver los ajustes de deuda de este miembro"
+            )
+    
+    # Get the debt adjustments
+    adjustments = PaymentService.get_adjustments_by_member(db, member_id)
+    logger.info(f"Returning {len(adjustments)} debt adjustments for member: {member_id}")
+    return adjustments
 
 @router.get("/family/{family_id}", response_model=List[Payment])
 def get_family_payments(
@@ -179,7 +285,7 @@ def get_family_payments(
     db: Session = Depends(get_db)
 ):
     """
-    Get payments for a specific family.
+    Get regular payments for a specific family.
     
     Args:
         family_id: ID of the family to get payments for
@@ -187,27 +293,66 @@ def get_family_payments(
         db: Database session
         
     Returns:
-        List[Payment]: List of payments for the family
+        List[Payment]: List of regular payments for the family
         
     Raises:
         HTTPException: If the user doesn't have permission to view the family's payments
     """
-    logger.info(f"Request to get payments for family: {family_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request for family payments: family_id={family_id}, requested by telegram_id: {telegram_id}")
     
     # If a telegram_id is provided, verify that the user belongs to the family
     if telegram_id:
-        member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
         
-        if not member or member.family_id != family_id:
+        if not requesting_member or requesting_member.family_id != family_id:
             logger.warning(f"Permission denied for telegram_id: {telegram_id} to view payments for family: {family_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to view this family's payments"
+                detail="No tienes permiso para ver los pagos de esta familia"
             )
     
+    # Get regular payments only
     payments = PaymentService.get_payments_by_family(db, family_id)
-    logger.info(f"Retrieved {len(payments)} payments for family: {family_id}")
+    logger.info(f"Returning {len(payments)} regular payments for family: {family_id}")
     return payments
+
+@router.get("/family/{family_id}/adjustments", response_model=List[Payment])
+def get_family_adjustments(
+    family_id: str,
+    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get debt adjustments for a specific family.
+    
+    Args:
+        family_id: ID of the family to get debt adjustments for
+        telegram_id: Optional Telegram ID for permission validation
+        db: Database session
+        
+    Returns:
+        List[Payment]: List of debt adjustments for the family
+        
+    Raises:
+        HTTPException: If the user doesn't have permission to view the family's adjustments
+    """
+    logger.info(f"Request for family debt adjustments: family_id={family_id}, requested by telegram_id: {telegram_id}")
+    
+    # If a telegram_id is provided, verify that the user belongs to the family
+    if telegram_id:
+        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
+        
+        if not requesting_member or requesting_member.family_id != family_id:
+            logger.warning(f"Permission denied for telegram_id: {telegram_id} to view adjustments for family: {family_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para ver los ajustes de deuda de esta familia"
+            )
+    
+    # Get debt adjustments
+    adjustments = PaymentService.get_adjustments_by_family(db, family_id)
+    logger.info(f"Returning {len(adjustments)} debt adjustments for family: {family_id}")
+    return adjustments
 
 @router.delete("/{payment_id}", response_model=Dict[str, Any])
 def delete_payment(

@@ -285,47 +285,96 @@ class PaymentService:
     @staticmethod
     def get_payments_by_member(db: Session, member_id: str):
         """
-        Get all payments involving a specific member (sent or received).
+        Get all regular payments involving a specific member (sent or received).
         
         Args:
             db: Database session
             member_id: ID of the member
             
         Returns:
-            List[Payment]: List of payments involving the member
+            List[Payment]: List of regular payments involving the member
         """
-        logger.debug(f"Getting payments for member: {member_id}")
+        logger.debug(f"Getting regular payments for member: {member_id}")
         payments = db.query(Payment).filter(
-            (Payment.from_member_id == member_id) | (Payment.to_member_id == member_id)
+            ((Payment.from_member_id == member_id) | (Payment.to_member_id == member_id)) &
+            (Payment.payment_type == PaymentType.PAYMENT)
         ).all()
-        logger.info(f"Found {len(payments)} payments for member {member_id}")
+        logger.info(f"Found {len(payments)} regular payments for member {member_id}")
         return payments
+        
+    @staticmethod
+    def get_adjustments_by_member(db: Session, member_id: str):
+        """
+        Get all debt adjustments involving a specific member (sent or received).
+        
+        Args:
+            db: Database session
+            member_id: ID of the member
+            
+        Returns:
+            List[Payment]: List of debt adjustments involving the member
+        """
+        logger.debug(f"Getting debt adjustments for member: {member_id}")
+        adjustments = db.query(Payment).filter(
+            ((Payment.from_member_id == member_id) | (Payment.to_member_id == member_id)) &
+            (Payment.payment_type == PaymentType.ADJUSTMENT)
+        ).all()
+        logger.info(f"Found {len(adjustments)} debt adjustments for member {member_id}")
+        return adjustments
     
     @staticmethod
     def get_payments_by_family(db: Session, family_id: str):
         """
-        Get payments for a family.
+        Get regular payments for a family.
         
         Args:
             db: Database session
             family_id: ID of the family to get payments for
             
         Returns:
-            List[Payment]: List of payments for the family
+            List[Payment]: List of regular payments for the family
         """
-        logger.debug(f"Getting payments for family: {family_id}")
+        logger.debug(f"Getting regular payments for family: {family_id}")
         
         # Get the IDs of the family members
         member_ids = [m.id for m in db.query(Member).filter(Member.family_id == family_id).all()]
         logger.debug(f"Family {family_id} has {len(member_ids)} members")
         
-        # Get payments where the payer or receiver is a family member
+        # Get regular payments where the payer or receiver is a family member
         payments = db.query(Payment).filter(
-            (Payment.from_member_id.in_(member_ids)) | (Payment.to_member_id.in_(member_ids))
+            ((Payment.from_member_id.in_(member_ids)) | (Payment.to_member_id.in_(member_ids))) &
+            (Payment.payment_type == PaymentType.PAYMENT)
         ).all()
         
-        logger.info(f"Found {len(payments)} payments for family {family_id}")
+        logger.info(f"Found {len(payments)} regular payments for family {family_id}")
         return payments
+        
+    @staticmethod
+    def get_adjustments_by_family(db: Session, family_id: str):
+        """
+        Get debt adjustments for a family.
+        
+        Args:
+            db: Database session
+            family_id: ID of the family to get adjustments for
+            
+        Returns:
+            List[Payment]: List of debt adjustments for the family
+        """
+        logger.debug(f"Getting debt adjustments for family: {family_id}")
+        
+        # Get the IDs of the family members
+        member_ids = [m.id for m in db.query(Member).filter(Member.family_id == family_id).all()]
+        logger.debug(f"Family {family_id} has {len(member_ids)} members")
+        
+        # Get debt adjustments where the payer or receiver is a family member
+        adjustments = db.query(Payment).filter(
+            ((Payment.from_member_id.in_(member_ids)) | (Payment.to_member_id.in_(member_ids))) &
+            (Payment.payment_type == PaymentType.ADJUSTMENT)
+        ).all()
+        
+        logger.info(f"Found {len(adjustments)} debt adjustments for family {family_id}")
+        return adjustments
         
     @staticmethod
     def create_debt_adjustment(db: Session, adjustment: PaymentCreate, family_id: str = None):
