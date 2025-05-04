@@ -438,10 +438,9 @@ class PaymentService:
             from_member_id=adjustment.from_member,  # El acreedor
             to_member_id=adjustment.to_member,      # El deudor
             amount=adjustment.amount,
-            description=adjustment.description if adjustment.description else "Ajuste de deuda",
             family_id=family_id,
             status=PaymentStatus.CONFIRM,  # Ajustes no requieren confirmación
-            payment_type=PaymentType.ADJUSTMENT  # Marcar como ajuste de deuda
+            payment_type=PaymentType.ADJUSTMENT  # Marcar como ajuste de deuda - no incluye description porque no existe en el modelo
         )
         
         db.add(db_adjustment)
