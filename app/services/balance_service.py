@@ -417,10 +417,16 @@ class BalanceService:
                         amount=debt.amount
                     ))
             
-            # Crear el objeto de balance
+            # Calcular totales
+            total_debt = sum(debt.amount for debt in debts)
+            total_owed = sum(credit.amount for credit in credits)
+            
+            # Crear el objeto de balance siguiendo exactamente el esquema
             balance = MemberBalance(
                 member_id=member_id,
-                member_name=member_name,
+                name=member_name,  # Usar 'name' en lugar de 'member_name'
+                total_debt=total_debt,
+                total_owed=total_owed,
                 net_balance=cache.net_balance,
                 debts=debts,
                 credits=credits
@@ -656,20 +662,31 @@ class BalanceService:
                 logger.info(f"Caché desactivado, calculando balances para familia: {family_id}")
                 return BalanceService.calculate_family_balances(db, family_id)
         
+        # Imprimir directamente en la consola para forzar visibilidad
+        print("\n===============================================")
+        print(f"SOLICITANDO BALANCES PARA FAMILIA: {family_id}")
+        print(f"USANDO CACHE: {use_cache}, FORZAR REFRESCO: {force_refresh}")
+        print("===============================================\n")
+        
         # Intentar obtener del caché
         start_time = time.time()
         cached_balances = BalanceService.get_cached_balances(db, family_id)
         
         # Si no hay caché completo, inicializarlo y retornar
         if not cached_balances:
+            print(f"\n❌ NO HAY CACHE DISPONIBLE para familia: {family_id}. Inicializando...\n")
             logger.info(f"No hay caché disponible para familia: {family_id}, inicializando")
             BalanceService.initialize_balance_cache(db, family_id)
             cached_balances = BalanceService.get_cached_balances(db, family_id)
+            print(f"\n✅ CACHE INICIALIZADO EXITOSAMENTE para familia: {family_id}\n")
             logger.info(f"Caché inicializado para familia: {family_id}")
             return cached_balances
         
         end_time = time.time()
         duration_ms = int((end_time - start_time) * 1000)
+        
+        # Imprimir directamente para asegurar que se vea
+        print(f"\n🚀 🚀 🚀 USANDO CACHE: Balances obtenidos en {duration_ms}ms para familia: {family_id}\n")
         logger.info(f"🚀 USANDO CACHÉ: Balances obtenidos del caché para familia: {family_id} en {duration_ms}ms")
         return cached_balances
     

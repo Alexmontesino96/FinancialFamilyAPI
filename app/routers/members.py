@@ -250,8 +250,23 @@ def get_member_balance(
                 detail="You don't have permission to view this member's balance"
             )
     
-    # Get the member's balance
-    balance = BalanceService.get_member_balance(db, member.family_id, member_id)
+    # Verificamos si podemos usar el caché
+    try:
+        # Obtener balances utilizando el caché si está disponible
+        family_balances = BalanceService.get_family_balances(db, member.family_id, use_cache=True)
+        
+        # Buscar el balance del miembro específico
+        balance = next((b for b in family_balances if b.member_id == member_id), None)
+        
+        if not balance:
+            # Si no se encontró en el caché, calcularlo de la manera tradicional
+            balance = BalanceService.get_member_balance(db, member.family_id, member_id)
+    except Exception as e:
+        # En caso de error con el caché, fallback al método tradicional
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error al obtener balance del caché: {str(e)}")
+        balance = BalanceService.get_member_balance(db, member.family_id, member_id)
     
     # Mejorar la visualización de los balances
     if not balance.debts:
