@@ -11,9 +11,22 @@ from logging.handlers import RotatingFileHandler
 import os
 
 # Configuración base para todos los loggers
-LOG_LEVEL = logging.INFO
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+
+# Determinar el nivel de log desde variables de entorno
+log_level_str = os.environ.get('LOG_LEVEL', 'INFO').upper()
+if log_level_str == 'DEBUG':
+    LOG_LEVEL = logging.DEBUG
+    print("Configurando nivel de log: DEBUG")
+elif log_level_str == 'WARNING':
+    LOG_LEVEL = logging.WARNING
+elif log_level_str == 'ERROR':
+    LOG_LEVEL = logging.ERROR
+elif log_level_str == 'CRITICAL':
+    LOG_LEVEL = logging.CRITICAL
+else:
+    LOG_LEVEL = logging.INFO
 
 # Directorio para los archivos de log
 LOG_DIR = "logs"
