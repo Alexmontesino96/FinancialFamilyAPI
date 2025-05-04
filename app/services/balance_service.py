@@ -342,6 +342,126 @@ class BalanceService:
         return result
     
     @staticmethod
+    def get_cached_balances_optimized(db: Session, family_id: str) -> List[MemberBalance]:
+        """
+        Versión altamente optimizada para obtener balances en caché para una familia.
+        
+        Esta versión reduce el número de consultas a la base de datos y optimiza el procesamiento en memoria.
+        
+        Args:
+            db: Database session
+            family_id: ID de la familia
+            
+        Returns:
+            List[MemberBalance]: Lista de balances de miembros con detalles de deudas
+        """
+        from sqlalchemy import text, func
+        start_time = time.time()
+        logger.debug(f"Obteniendo balances en caché optimizados para familia: {family_id}")
+        
+        # 1. OPTIMIZACIÓN: Verificar en una sola consulta si tenemos caché completo
+        # Contar miembros y entradas de caché en una sola consulta
+        cache_check = db.query(
+            func.count(Member.id).label('member_count'),
+            func.count(MemberBalanceCache.id).label('cache_count')
+        ).select_from(Member).join(
+            MemberBalanceCache, 
+            (MemberBalanceCache.member_id == Member.id) & 
+            (MemberBalanceCache.family_id == Member.family_id),
+            isouter=True
+        ).filter(
+            Member.family_id == family_id
+        ).first()
+        
+        # Si no hay caché completo, retornar None para que se inicialice
+        if not cache_check or cache_check.member_count != cache_check.cache_count:
+            logger.debug(f"No hay caché completo para familia {family_id}. Inicializando caché...")
+            return None
+        
+        # 2. OPTIMIZACIÓN: Obtener miembros y balance en caché en una sola consulta
+        member_cache_data = db.query(
+            MemberBalanceCache.member_id,
+            MemberBalanceCache.net_balance,
+            Member.name
+        ).join(
+            Member, MemberBalanceCache.member_id == Member.id
+        ).filter(
+            MemberBalanceCache.family_id == family_id
+        ).all()
+        
+        # Crear un mapa de miembros para referencia rápida
+        members_map = {}
+        for member_id, net_balance, name in member_cache_data:
+            members_map[str(member_id)] = {
+                'name': name,
+                'net_balance': net_balance,
+                'debts': [],
+                'credits': []
+            }
+        
+        # 3. OPTIMIZACIÓN: Obtener deudas en una sola consulta
+        debt_cache = db.query(
+            DebtCache.from_member_id,
+            DebtCache.to_member_id,
+            DebtCache.amount
+        ).filter(
+            DebtCache.family_id == family_id,
+            DebtCache.amount > 0  # Solo incluir deudas positivas
+        ).all()
+        
+        # 4. OPTIMIZACIÓN: Procesar deudas y créditos en un solo bucle
+        for from_id, to_id, amount in debt_cache:
+            from_id_str = str(from_id)
+            to_id_str = str(to_id)
+            
+            # Añadir deuda
+            if from_id_str in members_map:
+                members_map[from_id_str]['debts'].append({
+                    'to_id': to_id_str,
+                    'to_name': members_map.get(to_id_str, {}).get('name', 'Unknown'),
+                    'amount': amount
+                })
+            
+            # Añadir crédito
+            if to_id_str in members_map:
+                members_map[to_id_str]['credits'].append({
+                    'from_id': from_id_str,
+                    'from_name': members_map.get(from_id_str, {}).get('name', 'Unknown'),
+                    'amount': amount
+                })
+        
+        # 5. OPTIMIZACIÓN: Construir objetos de balance en un solo paso
+        result_balances = []
+        for member_id, data in members_map.items():
+            # Convertir a objetos DebtDetail y CreditDetail
+            debts = [DebtDetail(to_id=d['to_id'], to_name=d['to_name'], amount=d['amount']) 
+                    for d in data['debts']]
+            
+            credits = [CreditDetail(from_id=c['from_id'], from_name=c['from_name'], amount=c['amount']) 
+                      for c in data['credits']]
+            
+            # Calcular totales
+            total_debt = sum(d['amount'] for d in data['debts'])
+            total_owed = sum(c['amount'] for c in data['credits'])
+            
+            # Crear objeto MemberBalance
+            balance = MemberBalance(
+                member_id=member_id,
+                name=data['name'],
+                total_debt=total_debt,
+                total_owed=total_owed,
+                net_balance=data['net_balance'],
+                debts=debts,
+                credits=credits
+            )
+            result_balances.append(balance)
+        
+        end_time = time.time()
+        duration_ms = int((end_time - start_time) * 1000)
+        logger.info(f"⚡ Balances en caché optimizados obtenidos para familia {family_id} en {duration_ms}ms")
+        return result_balances
+    
+    @staticmethod
     def get_cached_balances(db: Session, family_id: str) -> List[MemberBalance]:
         """
         Obtiene los balances en caché para una familia.
@@ -662,55 +782,65 @@ class BalanceService:
                 logger.info(f"Caché desactivado, calculando balances para familia: {family_id}")
                 return BalanceService.calculate_family_balances(db, family_id)
         
-        # Imprimir directamente en la consola para forzar visibilidad
-        print("\n===============================================")
-        print(f"SOLICITANDO BALANCES PARA FAMILIA: {family_id}")
-        print(f"USANDO CACHE: {use_cache}, FORZAR REFRESCO: {force_refresh}")
-        print("===============================================\n")
+        # Usar logging.warning para asegurar que se muestre en la consola
+        logger.warning("===============================================")
+        logger.warning(f"SOLICITANDO BALANCES PARA FAMILIA: {family_id}")
+        logger.warning(f"USANDO CACHE: {use_cache}, FORZAR REFRESCO: {force_refresh}")
+        logger.warning("===============================================")
         
-        # Intentar obtener del caché
+        # Intentar obtener del caché usando el método optimizado
         start_time = time.time()
-        cached_balances = BalanceService.get_cached_balances(db, family_id)
+        cached_balances = BalanceService.get_cached_balances_optimized(db, family_id)
         
         # Si no hay caché completo, inicializarlo y retornar
         if not cached_balances:
-            print(f"\n❌ NO HAY CACHE DISPONIBLE para familia: {family_id}. Inicializando...\n")
+            logger.warning(f"❌ NO HAY CACHE DISPONIBLE para familia: {family_id}. Inicializando...")
             logger.info(f"No hay caché disponible para familia: {family_id}, inicializando")
             BalanceService.initialize_balance_cache(db, family_id)
-            cached_balances = BalanceService.get_cached_balances(db, family_id)
-            print(f"\n✅ CACHE INICIALIZADO EXITOSAMENTE para familia: {family_id}\n")
+            cached_balances = BalanceService.get_cached_balances_optimized(db, family_id)
+            logger.warning(f"✅ CACHE INICIALIZADO EXITOSAMENTE para familia: {family_id}")
             logger.info(f"Caché inicializado para familia: {family_id}")
             return cached_balances
         
+        # Calcular duración y registrar información
         end_time = time.time()
         duration_ms = int((end_time - start_time) * 1000)
         
-        # Imprimir directamente para asegurar que se vea
-        print(f"\n🚀 🚀 🚀 USANDO CACHE: Balances obtenidos en {duration_ms}ms para familia: {family_id}\n")
+        logger.warning(f"🚀 🚀 🚀 USANDO CACHE: Balances obtenidos en {duration_ms}ms para familia: {family_id}")
         logger.info(f"🚀 USANDO CACHÉ: Balances obtenidos del caché para familia: {family_id} en {duration_ms}ms")
         return cached_balances
     
     @staticmethod
-    def get_member_balance(db: Session, family_id: str, member_id: str) -> MemberBalance:
+    def get_member_balance(db: Session, family_id: str, member_id: str, use_cache: bool = True) -> MemberBalance:
         """
-        Get the balance of a specific member.
+        Get the balance of a specific member using cache when available.
         
         Args:
             db: Database session
             family_id: ID of the family the member belongs to
             member_id: ID of the member to get the balance for
+            use_cache: If True, will try to use the cache; if False, will calculate from scratch
             
         Returns:
             MemberBalance: The member's balance or None if not found
         """
-        # Calculate the balances of the entire family
-        family_balances = BalanceService.calculate_family_balances(db, family_id)
+        # Use cache if available
+        if use_cache:
+            logger.debug(f"Intentando obtener balance de caché para miembro: {member_id} en familia: {family_id}")
+            # Get balances using the optimized cache method
+            family_balances = BalanceService.get_family_balances(db, family_id, use_cache=True)
+        else:
+            # Calculate from scratch if cache is disabled
+            logger.debug(f"Calculando balance desde cero para miembro: {member_id} en familia: {family_id}")
+            family_balances = BalanceService.calculate_family_balances(db, family_id)
         
         # Find the balance of the specific member
-        for balance in family_balances:
-            if balance.member_id == str(member_id):
-                return balance
+        if family_balances:
+            for balance in family_balances:
+                if balance.member_id == str(member_id):
+                    return balance
         
+        logger.warning(f"No se encontró balance para el miembro: {member_id} en familia: {family_id}")
         return None
         
     @staticmethod
