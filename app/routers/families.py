@@ -245,8 +245,13 @@ def get_family_balances(
                 detail="You don't have permission to view this family's balances"
             )
     
-    # Calculate the balances with debug mode if requested
-    balances = BalanceService.calculate_family_balances(db, family_id, debug_mode=debug)
+    # Calculate the balances using optimized cache method
+    if debug:
+        # Para debug, usar el método detallado sin caché
+        balances = BalanceService.calculate_family_balances(db, family_id, debug_mode=debug)
+    else:
+        # Para uso normal, usar el método optimizado con caché
+        balances = BalanceService.get_family_balances(db, family_id, use_cache=True)
     
     # Verificar la consistencia de los balances
     is_consistent = BalanceService.verify_balance_consistency(db, family_id)
