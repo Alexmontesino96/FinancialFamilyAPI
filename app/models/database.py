@@ -9,8 +9,8 @@ provided for development environments.
 """
 
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 import os
 from dotenv import load_dotenv
 
@@ -26,7 +26,18 @@ if not DATABASE_URL:
 DATABASE_URL = DATABASE_URL.strip()
 
 # Create database engine with the configured URL
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={
+        "sslmode": "require",
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5
+    }
+)
 
 # Create session factory for database interactions
 # autocommit=False: Transactions must be explicitly committed
@@ -51,4 +62,4 @@ def get_db():
         yield db
     finally:
         # Ensure the database session is closed even if an exception occurs
-        db.close() 
+        db.close()

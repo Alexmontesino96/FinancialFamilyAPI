@@ -12,7 +12,7 @@ Models:
 - Payment: Represents a money transfer between two members
 """
 
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Table, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Table, DateTime, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
@@ -242,6 +242,9 @@ class DebtCache(Base):
         last_updated (datetime): Última vez que se actualizó el caché
     """
     __tablename__ = "debt_cache"
+    __table_args__ = (
+        UniqueConstraint('family_id', 'from_member_id', 'to_member_id', name='unique_debt_per_pair'),
+    )
     
     id = Column(String(36), primary_key=True, default=generate_uuid, index=True)
     family_id = Column(String(36), ForeignKey("families.id"), index=True)

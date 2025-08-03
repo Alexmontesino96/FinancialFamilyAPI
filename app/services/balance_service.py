@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
+from sqlalchemy.dialects.postgresql import insert
 from app.models.models import Family, Member, Expense, Payment, PaymentStatus, PaymentType, MemberBalanceCache, DebtCache
-from app.models.schemas import MemberBalance, DebtDetail, CreditDetail
+from app.models.schemas import MemberBalance, DebtDetail, CreditDetail, PendingPaymentDetail
 from typing import List, Dict, Set, Tuple
 import time
 from app.utils.logging_config import get_logger
@@ -328,6 +329,9 @@ class BalanceService:
         # Convert to a list of MemberBalance objects
         result = []
         for member_id, balance_data in balances.items():
+            # Obtener pagos pendientes para este miembro
+            pending_sent, pending_received = BalanceService._get_pending_payments_for_member(db, member_id, family_id)
+            
             member_balance = MemberBalance(
                 member_id=balance_data["member_id"],
                 name=balance_data["name"],
@@ -335,7 +339,9 @@ class BalanceService:
                 total_owed=balance_data["total_owed"],
                 net_balance=balance_data["net_balance"],
                 debts=[DebtDetail(**debt) for debt in balance_data["debts"]],
-                credits=[CreditDetail(**credit) for credit in balance_data["credits"]]
+                credits=[CreditDetail(**credit) for credit in balance_data["credits"]],
+                pending_payments_sent=pending_sent,
+                pending_payments_received=pending_received
             )
             result.append(member_balance)
         
@@ -444,6 +450,9 @@ class BalanceService:
             total_debt = sum(d['amount'] for d in data['debts'])
             total_owed = sum(c['amount'] for c in data['credits'])
             
+            # Obtener pagos pendientes para este miembro
+            pending_sent, pending_received = BalanceService._get_pending_payments_for_member(db, member_id, family_id)
+            
             # Crear objeto MemberBalance
             balance = MemberBalance(
                 member_id=member_id,
@@ -452,7 +461,9 @@ class BalanceService:
                 total_owed=total_owed,
                 net_balance=data['net_balance'],
                 debts=debts,
-                credits=credits
+                credits=credits,
+                pending_payments_sent=pending_sent,
+                pending_payments_received=pending_received
             )
             result_balances.append(balance)
         
@@ -541,6 +552,9 @@ class BalanceService:
             total_debt = sum(debt.amount for debt in debts)
             total_owed = sum(credit.amount for credit in credits)
             
+            # Obtener pagos pendientes para este miembro
+            pending_sent, pending_received = BalanceService._get_pending_payments_for_member(db, member_id, family_id)
+            
             # Crear el objeto de balance siguiendo exactamente el esquema
             balance = MemberBalance(
                 member_id=member_id,
@@ -549,13 +563,73 @@ class BalanceService:
                 total_owed=total_owed,
                 net_balance=cache.net_balance,
                 debts=debts,
-                credits=credits
+                credits=credits,
+                pending_payments_sent=pending_sent,
+                pending_payments_received=pending_received
             )
             result_balances.append(balance)
         
         logger.info(f"Balances en caché obtenidos para familia {family_id}")
         return result_balances
     
+    @staticmethod
+    def _get_pending_payments_for_member(db: Session, member_id: str, family_id: str) -> Tuple[List[PendingPaymentDetail], List[PendingPaymentDetail]]:
+        """
+        Obtiene los pagos pendientes para un miembro específico.
+        
+        Args:
+            db: Database session
+            member_id: ID del miembro
+            family_id: ID de la familia
+            
+        Returns:
+            Tuple de (pagos_enviados, pagos_recibidos) como listas de PendingPaymentDetail
+        """
+        # Pagos enviados por este miembro (PENDING)
+        payments_sent = db.query(Payment).join(
+            Member, Payment.to_member_id == Member.id
+        ).filter(
+            Payment.from_member_id == member_id,
+            Payment.family_id == family_id,
+            Payment.status == PaymentStatus.PENDING
+        ).all()
+        
+        # Pagos recibidos por este miembro (PENDING)
+        payments_received = db.query(Payment).join(
+            Member, Payment.from_member_id == Member.id
+        ).filter(
+            Payment.to_member_id == member_id,
+            Payment.family_id == family_id,
+            Payment.status == PaymentStatus.PENDING
+        ).all()
+        
+        # Convertir a PendingPaymentDetail
+        sent_details = []
+        for payment in payments_sent:
+            to_member = db.query(Member).filter(Member.id == payment.to_member_id).first()
+            from_member = db.query(Member).filter(Member.id == payment.from_member_id).first()
+            sent_details.append(PendingPaymentDetail(
+                payment_id=payment.id,
+                from_name=from_member.name if from_member else "Unknown",
+                to_name=to_member.name if to_member else "Unknown",
+                amount=payment.amount,
+                created_at=payment.created_at
+            ))
+        
+        received_details = []
+        for payment in payments_received:
+            to_member = db.query(Member).filter(Member.id == payment.to_member_id).first()
+            from_member = db.query(Member).filter(Member.id == payment.from_member_id).first()
+            received_details.append(PendingPaymentDetail(
+                payment_id=payment.id,
+                from_name=from_member.name if from_member else "Unknown",
+                to_name=to_member.name if to_member else "Unknown",
+                amount=payment.amount,
+                created_at=payment.created_at
+            ))
+        
+        return sent_details, received_details
+
     @staticmethod
     def initialize_balance_cache(db: Session, family_id: str) -> None:
         """
@@ -659,23 +733,21 @@ class BalanceService:
             member_cache.total_debt += amount_per_member
             member_cache.net_balance = member_cache.total_owed - member_cache.total_debt
             
-            # Actualizar o crear deuda específica
-            debt = db.query(DebtCache).filter(
-                DebtCache.family_id == family_id,
-                DebtCache.from_member_id == member.id,
-                DebtCache.to_member_id == payer_id
-            ).first()
-            
-            if debt:
-                debt.amount += amount_per_member
-            else:
-                debt = DebtCache(
-                    family_id=family_id,
-                    from_member_id=member.id,
-                    to_member_id=payer_id,
-                    amount=amount_per_member
-                )
-                db.add(debt)
+            # Usar UPSERT para actualizar o crear deuda específica
+            stmt = insert(DebtCache).values(
+                family_id=family_id,
+                from_member_id=member.id,
+                to_member_id=payer_id,
+                amount=amount_per_member
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['family_id', 'from_member_id', 'to_member_id'],
+                set_={
+                    'amount': DebtCache.amount + stmt.excluded.amount,
+                    'last_updated': func.now()
+                }
+            )
+            db.execute(stmt)
         
         db.commit()
         logger.info(f"Caché de balances actualizado para nuevo gasto: {expense.id}")

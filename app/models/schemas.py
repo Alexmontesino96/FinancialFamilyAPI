@@ -313,6 +313,23 @@ class CreditDetail(BaseModel):
         }
     }
 
+class PendingPaymentDetail(BaseModel):
+    """
+    Schema for pending payment details.
+    
+    Attributes:
+        payment_id (str): ID of the pending payment
+        from_name (str): Name of the member sending the payment
+        to_name (str): Name of the member receiving the payment
+        amount (float): Amount of the pending payment
+        created_at (datetime): When the payment was created
+    """
+    payment_id: str
+    from_name: str
+    to_name: str
+    amount: float
+    created_at: datetime
+
 class MemberBalance(BaseModel):
     """
     Schema for member balance calculations.
@@ -325,6 +342,8 @@ class MemberBalance(BaseModel):
         net_balance (float): Net balance (positive means others owe this member)
         debts (List[DebtDetail]): Detailed breakdown of debts to other members
         credits (List[CreditDetail]): Detailed breakdown of credits from other members
+        pending_payments_sent (List[PendingPaymentDetail]): Payments sent but not confirmed
+        pending_payments_received (List[PendingPaymentDetail]): Payments received but not confirmed
     """
     member_id: str
     name: str
@@ -333,6 +352,8 @@ class MemberBalance(BaseModel):
     net_balance: float
     debts: List[DebtDetail] = []
     credits: List[CreditDetail] = []
+    pending_payments_sent: List[PendingPaymentDetail] = []
+    pending_payments_received: List[PendingPaymentDetail] = []
 
     model_config = {
         "populate_by_name": True
