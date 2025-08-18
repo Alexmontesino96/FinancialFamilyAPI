@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "0.0.0.0:8007:8007"
+    environment:
+      - DATABASE_URL=postgresql://postgres.odwrhwpqynwtbvpigmbc:tuvpup-megba8-giwxAx@aws-0-us-west-1.pooler.supabase.com:5432/postgres
+      - SECRET_KEY=09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - PUBLIC_URL=http://all.ddnskey.com
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
