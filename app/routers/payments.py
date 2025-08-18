@@ -6,7 +6,7 @@ It provides routes for creating, retrieving, and deleting payments,
 as well as getting payments by member or family.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Tuple, Any
 import logging
@@ -15,6 +15,7 @@ from app.models.database import get_db
 from app.models.schemas import Payment, PaymentCreate, PaymentUpdate, PaymentStatus
 from app.services.payment_service import PaymentService
 from app.services.member_service import MemberService
+from app.security.auth0 import User, get_current_user
 from app.services.balance_service import BalanceService
 from app.utils.logging_config import get_logger
 
@@ -29,7 +30,7 @@ logger = get_logger(__name__)
 @router.post("/", response_model=Payment, status_code=status.HTTP_201_CREATED)
 def create_payment(
     payment: PaymentCreate,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -52,18 +53,23 @@ def create_payment(
     """
     logger.info(f"Request to create payment: from {payment.from_member} to {payment.to_member}, amount: {payment.amount}")
     
-    # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        from_member = MemberService.get_member(db, payment.from_member)
-        to_member = MemberService.get_member(db, payment.to_member)
-        
-        if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id or from_member.family_id != to_member.family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to create payment for members: {payment.from_member}, {payment.to_member}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para crear pagos entre estos miembros"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    from_member = MemberService.get_member(db, payment.from_member)
+    to_member = MemberService.get_member(db, payment.to_member)
+    if (
+        not requesting_member
+        or not from_member
+        or not to_member
+        or requesting_member.family_id != from_member.family_id
+        or from_member.family_id != to_member.family_id
+    ):
+        logger.warning(
+            f"Permission denied for user: {current_user.sub} to create payment for members: {payment.from_member}, {payment.to_member}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para crear pagos entre estos miembros"
+        )
     
     try:
         # Intentar crear el pago - aquí se validará si el monto excede la deuda
@@ -84,7 +90,7 @@ def create_payment(
 @router.post("/debt-adjustment/", response_model=Payment, status_code=status.HTTP_201_CREATED)
 def create_debt_adjustment(
     adjustment: PaymentCreate,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID del usuario"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -109,18 +115,23 @@ def create_debt_adjustment(
     """
     logger.info(f"Solicitud para crear ajuste de deuda: de {adjustment.from_member} a {adjustment.to_member}, monto: {adjustment.amount}")
     
-    # Si se proporciona un telegram_id, verificar que el usuario pertenezca a la misma familia que los miembros del ajuste
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        from_member = MemberService.get_member(db, adjustment.from_member)
-        to_member = MemberService.get_member(db, adjustment.to_member)
-        
-        if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id or from_member.family_id != to_member.family_id:
-            logger.warning(f"Permiso denegado para telegram_id: {telegram_id} para crear ajuste entre miembros: {adjustment.from_member}, {adjustment.to_member}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para crear ajustes de deuda entre estos miembros"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    from_member = MemberService.get_member(db, adjustment.from_member)
+    to_member = MemberService.get_member(db, adjustment.to_member)
+    if (
+        not requesting_member
+        or not from_member
+        or not to_member
+        or requesting_member.family_id != from_member.family_id
+        or from_member.family_id != to_member.family_id
+    ):
+        logger.warning(
+            f"Permiso denegado para usuario: {current_user.sub} para crear ajuste entre miembros: {adjustment.from_member}, {adjustment.to_member}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para crear ajustes de deuda entre estos miembros"
+        )
     
     try:
         # Intentar crear el ajuste de deuda - aquí se validará si el monto excede la deuda
@@ -141,7 +152,7 @@ def create_debt_adjustment(
 @router.get("/{payment_id}", response_model=Payment)
 def get_payment(
     payment_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -158,7 +169,7 @@ def get_payment(
     Raises:
         HTTPException: If the payment is not found or the user doesn't have permission to view it
     """
-    logger.info(f"Request to get payment with ID: {payment_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request to get payment with ID: {payment_id}, requested by user: {current_user.sub}")
     
     payment = PaymentService.get_payment(db, payment_id)
     if not payment:
@@ -168,18 +179,15 @@ def get_payment(
             detail="Payment not found"
         )
     
-    # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        from_member = MemberService.get_member(db, payment.from_member)
-        to_member = MemberService.get_member(db, payment.to_member)
-        
-        if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to view payment: {payment_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to view this payment"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    from_member = MemberService.get_member(db, payment.from_member)
+    to_member = MemberService.get_member(db, payment.to_member)
+    if not requesting_member or not from_member or not to_member or requesting_member.family_id != from_member.family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to view payment: {payment_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to view this payment"
+        )
     
     logger.info(f"Payment retrieved successfully: {payment.id}")
     return payment
@@ -187,7 +195,7 @@ def get_payment(
 @router.get("/member/{member_id}", response_model=List[Payment])
 def get_member_payments(
     member_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -204,7 +212,7 @@ def get_member_payments(
     Raises:
         HTTPException: If the member is not found or the user doesn't have permission to view the payments
     """
-    logger.info(f"Request for member payments: member_id={member_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request for member payments: member_id={member_id}, requested by user: {current_user.sub}")
     
     # Get the member
     member = MemberService.get_member(db, member_id)
@@ -215,16 +223,13 @@ def get_member_payments(
             detail="Miembro no encontrado"
         )
     
-    # If a telegram_id is provided, verify that the user belongs to the same family
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not requesting_member or requesting_member.family_id != member.family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to view payments for member: {member_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para ver los pagos de este miembro"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != member.family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to view payments for member: {member_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver los pagos de este miembro"
+        )
     
     # Get the regular payments only
     payments = PaymentService.get_payments_by_member(db, member_id)
@@ -234,7 +239,7 @@ def get_member_payments(
 @router.get("/member/{member_id}/adjustments", response_model=List[Payment])
 def get_member_adjustments(
     member_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -251,7 +256,7 @@ def get_member_adjustments(
     Raises:
         HTTPException: If the member is not found or the user doesn't have permission to view the adjustments
     """
-    logger.info(f"Request for member debt adjustments: member_id={member_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request for member debt adjustments: member_id={member_id}, requested by user: {current_user.sub}")
     
     # Get the member
     member = MemberService.get_member(db, member_id)
@@ -262,16 +267,13 @@ def get_member_adjustments(
             detail="Miembro no encontrado"
         )
     
-    # If a telegram_id is provided, verify that the user belongs to the same family
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not requesting_member or requesting_member.family_id != member.family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to view adjustments for member: {member_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para ver los ajustes de deuda de este miembro"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != member.family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to view adjustments for member: {member_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver los ajustes de deuda de este miembro"
+        )
     
     # Get the debt adjustments
     adjustments = PaymentService.get_adjustments_by_member(db, member_id)
@@ -281,7 +283,7 @@ def get_member_adjustments(
 @router.get("/family/{family_id}", response_model=List[Payment])
 def get_family_payments(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -298,18 +300,15 @@ def get_family_payments(
     Raises:
         HTTPException: If the user doesn't have permission to view the family's payments
     """
-    logger.info(f"Request for family payments: family_id={family_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request for family payments: family_id={family_id}, requested by user: {current_user.sub}")
     
-    # If a telegram_id is provided, verify that the user belongs to the family
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not requesting_member or requesting_member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to view payments for family: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para ver los pagos de esta familia"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to view payments for family: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver los pagos de esta familia"
+        )
     
     # Get regular payments only
     payments = PaymentService.get_payments_by_family(db, family_id)
@@ -319,7 +318,7 @@ def get_family_payments(
 @router.get("/family/{family_id}/adjustments", response_model=List[Payment])
 def get_family_adjustments(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -336,18 +335,15 @@ def get_family_adjustments(
     Raises:
         HTTPException: If the user doesn't have permission to view the family's adjustments
     """
-    logger.info(f"Request for family debt adjustments: family_id={family_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request for family debt adjustments: family_id={family_id}, requested by user: {current_user.sub}")
     
-    # If a telegram_id is provided, verify that the user belongs to the family
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not requesting_member or requesting_member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to view adjustments for family: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para ver los ajustes de deuda de esta familia"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to view adjustments for family: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver los ajustes de deuda de esta familia"
+        )
     
     # Get debt adjustments
     adjustments = PaymentService.get_adjustments_by_family(db, family_id)
@@ -357,7 +353,7 @@ def get_family_adjustments(
 @router.delete("/{payment_id}", response_model=Dict[str, Any])
 def delete_payment(
     payment_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -374,7 +370,7 @@ def delete_payment(
     Raises:
         HTTPException: If the payment is not found or the user doesn't have permission to delete it
     """
-    logger.info(f"Request to delete payment with ID: {payment_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request to delete payment with ID: {payment_id}, requested by user: {current_user.sub}")
     
     # We fetch the payment first mainly for permission checks
     payment = PaymentService.get_payment(db, payment_id)
@@ -385,18 +381,13 @@ def delete_payment(
             detail="Payment not found"
         )
     
-    # If a telegram_id is provided, verify that the user belongs to the same family as the payment members
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        # Need to ensure related members are loaded for permission check
-        # This get_payment call might not load them eagerly, consider modifying if needed.
-        # For now, assuming the loaded payment object has IDs accessible.
-        if not requesting_member or not payment.family_id or requesting_member.family_id != payment.family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to delete payment: {payment_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to delete this payment"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or not payment.family_id or requesting_member.family_id != payment.family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to delete payment: {payment_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to delete this payment"
+        )
     
     # Call the service to delete the payment, which now returns a dict
     deleted_payment_data = PaymentService.delete_payment(db, payment_id)
@@ -414,7 +405,7 @@ def delete_payment(
 @router.get("/diagnostics/{family_id}", response_model=Dict[str, Any])
 def diagnose_payment_issues(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -431,18 +422,14 @@ def diagnose_payment_issues(
             - possible_duplicates: Lista de posibles pagos duplicados
             - consistency_check: Si los balances son consistentes (suman cero)
     """
-    logger.info(f"Request to diagnose payments for family: {family_id}, requested by telegram_id: {telegram_id}")
-    
-    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la familia
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not requesting_member or requesting_member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to diagnose payments for family: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para diagnosticar los pagos de esta familia"
-            )
+    logger.info(f"Request to diagnose payments for family: {family_id}, requested by user: {current_user.sub}")
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to diagnose payments for family: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para diagnosticar los pagos de esta familia"
+        )
     
     # Obtener diagnóstico de pagos
     all_payments, duplicate_analysis = BalanceService.debug_payment_handling(db, family_id)
@@ -461,7 +448,7 @@ def diagnose_payment_issues(
 @router.post("/fix-duplicates/{family_id}", response_model=Dict[str, Any])
 def fix_payment_duplicates(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -478,18 +465,14 @@ def fix_payment_duplicates(
     Returns:
         Dict: Información sobre las correcciones realizadas
     """
-    logger.info(f"Request to fix payment duplicates for family: {family_id}, requested by telegram_id: {telegram_id}")
-    
-    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la familia
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not requesting_member or requesting_member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to fix payment duplicates for family: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para corregir los pagos de esta familia"
-            )
+    logger.info(f"Request to fix payment duplicates for family: {family_id}, requested by user: {current_user.sub}")
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to fix payment duplicates for family: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para corregir los pagos de esta familia"
+        )
     
     # Obtener diagnóstico de pagos
     all_payments, duplicate_analysis = BalanceService.debug_payment_handling(db, family_id)
@@ -545,7 +528,7 @@ def fix_payment_duplicates(
 def update_payment_status(
     payment_id: str,
     payment_update: PaymentUpdate,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -572,7 +555,7 @@ def update_payment_status(
     Raises:
         HTTPException: If the payment is not found or the user doesn't have permission
     """
-    logger.info(f"Request to update payment with ID: {payment_id}, new status: {payment_update.status}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request to update payment with ID: {payment_id}, new status: {payment_update.status}, requested by user: {current_user.sub}")
     
     # Verificar que el pago existe
     payment = PaymentService.get_payment(db, payment_id)
@@ -583,15 +566,13 @@ def update_payment_status(
             detail="Pago no encontrado"
         )
     
-    # Si se proporciona un telegram_id, verificar permisos
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not requesting_member or requesting_member.family_id != payment.family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to update payment: {payment_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para actualizar este pago"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != payment.family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to update payment: {payment_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para actualizar este pago"
+        )
     
     # Actualizar el estado del pago
     updated_payment = PaymentService.update_payment_status(db, payment_id, payment_update)
@@ -601,7 +582,7 @@ def update_payment_status(
 @router.post("/{payment_id}/confirm", response_model=Payment)
 def confirm_payment(
     payment_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -623,7 +604,7 @@ def confirm_payment(
         HTTPException: If the payment is not found, not in PENDING status,
                       or the user doesn't have permission
     """
-    logger.info(f"Request to confirm payment with ID: {payment_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request to confirm payment with ID: {payment_id}, requested by user: {current_user.sub}")
     
     # Verificar que el pago existe
     payment = PaymentService.get_payment(db, payment_id)
@@ -634,24 +615,20 @@ def confirm_payment(
             detail="Pago no encontrado"
         )
     
-    # Si se proporciona un telegram_id, verificar permisos
-    # Solo el receptor del pago o un miembro de la misma familia puede confirmar
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not requesting_member:
-            logger.warning(f"Requesting member not found with telegram_id: {telegram_id}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Usuario no encontrado"
-            )
-        
-        # Verificar que es el receptor del pago o un miembro de la misma familia
-        if requesting_member.id != payment.to_member_id and requesting_member.family_id != payment.family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to confirm payment: {payment_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para confirmar este pago"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member:
+        logger.warning(f"Requesting member not found for user: {current_user.sub}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    # Verificar que es el receptor del pago o un miembro de la misma familia
+    if requesting_member.id != payment.to_member_id and requesting_member.family_id != payment.family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to confirm payment: {payment_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para confirmar este pago"
+        )
     
     # Confirmar el pago
     confirmed_payment = PaymentService.confirm_payment(db, payment_id)
@@ -661,7 +638,7 @@ def confirm_payment(
 @router.post("/{payment_id}/reject", response_model=Payment)
 def reject_payment(
     payment_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -683,7 +660,7 @@ def reject_payment(
         HTTPException: If the payment is not found, not in PENDING status,
                       or the user doesn't have permission
     """
-    logger.info(f"Request to reject payment with ID: {payment_id}, requested by telegram_id: {telegram_id}")
+    logger.info(f"Request to reject payment with ID: {payment_id}, requested by user: {current_user.sub}")
     
     # Verificar que el pago existe
     payment = PaymentService.get_payment(db, payment_id)
@@ -694,26 +671,24 @@ def reject_payment(
             detail="Pago no encontrado"
         )
     
-    # Si se proporciona un telegram_id, verificar permisos
-    # Solo el receptor del pago o quien lo creó puede rechazarlo
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not requesting_member:
-            logger.warning(f"Requesting member not found with telegram_id: {telegram_id}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Usuario no encontrado"
-            )
-        
-        # Verificar que es el receptor del pago, quien lo creó, o un miembro de la misma familia
-        if (requesting_member.id != payment.to_member_id and 
-            requesting_member.id != payment.from_member_id and 
-            requesting_member.family_id != payment.family_id):
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to reject payment: {payment_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para rechazar este pago"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member:
+        logger.warning(f"Requesting member not found for user: {current_user.sub}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+    # Verificar que es el receptor del pago, quien lo creó, o un miembro de la misma familia
+    if (
+        requesting_member.id != payment.to_member_id
+        and requesting_member.id != payment.from_member_id
+        and requesting_member.family_id != payment.family_id
+    ):
+        logger.warning(f"Permission denied for user: {current_user.sub} to reject payment: {payment_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para rechazar este pago"
+        )
     
     # Rechazar el pago
     rejected_payment = PaymentService.reject_payment(db, payment_id)

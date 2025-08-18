@@ -104,7 +104,7 @@ class Member(Base):
     Attributes:
         id (str): Unique identifier for the member (UUID)
         name (str): Name of the member
-        telegram_id (str): Telegram ID used for authentication
+        auth0_user_id (str): Auth0 user identifier (JWT 'sub')
         family_id (str): ID of the family this member belongs to
         language (Language): Preferred language for notifications and interface
         created_at (datetime): When the member was created
@@ -118,7 +118,7 @@ class Member(Base):
 
     id = Column(String(36), primary_key=True, default=generate_uuid, index=True)
     name = Column(String, index=True)
-    telegram_id = Column(String, unique=True, index=True)
+    auth0_user_id = Column(String, unique=True, index=True)
     family_id = Column(String(36), ForeignKey("families.id"))
     language = Column(Enum(Language), default=Language.EN, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

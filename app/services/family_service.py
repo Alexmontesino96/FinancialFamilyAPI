@@ -42,7 +42,7 @@ class FamilyService:
             logger.debug(f"Adding member: {member_data.name} to family {db_family.id}")
             db_member = Member(
                 name=member_data.name,
-                telegram_id=member_data.telegram_id,
+                auth0_user_id=member_data.auth0_user_id,
                 family_id=db_family.id
             )
             db.add(db_member)
@@ -109,15 +109,15 @@ class FamilyService:
         logger.info(f"Adding member {member.name} to family {family_id}")
         
         # Check if the member already exists
-        existing_member = db.query(Member).filter(Member.telegram_id == member.telegram_id).first()
+        existing_member = db.query(Member).filter(Member.auth0_user_id == member.auth0_user_id).first()
         if existing_member:
-            logger.info(f"Member already exists with Telegram ID {member.telegram_id}: {existing_member.name} (ID: {existing_member.id})")
+            logger.info(f"Member already exists with Auth0 ID {member.auth0_user_id}: {existing_member.name} (ID: {existing_member.id})")
             return existing_member
         
         # Create the new member
         db_member = Member(
             name=member.name,
-            telegram_id=member.telegram_id,
+            auth0_user_id=member.auth0_user_id,
             family_id=family_id
         )
         db.add(db_member)

@@ -57,11 +57,11 @@ class MemberBase(BaseModel):
     
     Attributes:
         name (str): Name of the member
-        telegram_id (str): Telegram ID used for authentication
+        auth0_user_id (str): Auth0 user ID (JWT 'sub') used for authentication
         language (Language): Preferred language for notifications and interface
     """
     name: str
-    telegram_id: str
+    auth0_user_id: str
     language: Language = Language.EN
 
 class MemberCreate(MemberBase):
@@ -78,11 +78,11 @@ class MemberUpdate(BaseModel):
     
     Attributes:
         name (Optional[str]): New name for the member
-        telegram_id (Optional[str]): New Telegram ID for the member
+        auth0_user_id (Optional[str]): New Auth0 user ID for the member
         language (Optional[Language]): New preferred language for the member
     """
     name: Optional[str] = None
-    telegram_id: Optional[str] = None
+    auth0_user_id: Optional[str] = None
     language: Optional[Language] = None
 
 class Member(MemberBase):

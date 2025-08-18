@@ -142,13 +142,16 @@ async def general_exception_handler(request, exc):
     )
 
 # Configure Cross-Origin Resource Sharing (CORS)
-# This allows the API to be accessed from different domains/origins
-origins = [
-    "http://localhost",
-    "http://localhost:8000",
-    "http://localhost:3000",
-    "*"  # Allow all origins in development (restrict in production)
-]
+# Allowed origins can be configured via ALLOWED_ORIGINS env as comma-separated values
+allowed_origins = os.getenv("ALLOWED_ORIGINS")
+if allowed_origins:
+    origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+else:
+    origins = [
+        "http://localhost",
+        "http://localhost:8000",
+        "http://localhost:3000",
+    ]
 
 app.add_middleware(
     CORSMiddleware,

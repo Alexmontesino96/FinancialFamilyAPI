@@ -6,7 +6,7 @@ It provides routes for creating families, retrieving family information,
 managing family members, and calculating balances.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 import logging
@@ -17,6 +17,7 @@ from app.services.family_service import FamilyService
 from app.services.member_service import MemberService
 from app.services.balance_service import BalanceService
 from app.utils.logging_config import get_logger
+from app.security.auth0 import User, get_current_user
 
 router = APIRouter(
     prefix="/families",
@@ -44,21 +45,14 @@ def create_family(
         Family: The created family with its members
     
     Example:
-        ```json
+        Example body:
         {
           "name": "Smith Family",
           "members": [
-            {
-              "name": "John Smith",
-              "telegram_id": "123456789"
-            },
-            {
-              "name": "Jane Smith",
-              "telegram_id": "987654321"
-            }
+            {"name": "John Smith", "auth0_user_id": "auth0|abc123"},
+            {"name": "Jane Smith", "auth0_user_id": "auth0|xyz789"}
           ]
         }
-        ```
     """
     logger.info(f"Request to create family: '{family.name}' with {len(family.members)} initial members")
     created_family = FamilyService.create_family(db, family)
@@ -68,7 +62,7 @@ def create_family(
 @router.get("/{family_id}", response_model=Family)
 def get_family(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -88,17 +82,15 @@ def get_family(
     Raises:
         HTTPException: If the family is not found or the user doesn't have permission
     """
-    logger.info(f"Request to get family with ID: {family_id}, requested by telegram_id: {telegram_id}")
-    
-    # If a telegram_id is provided, verify that the user belongs to the family
-    if telegram_id:
-        member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not member or member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to access family: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this family"
-            )
+    logger.info(f"Request to get family with ID: {family_id}, requested by user: {current_user.sub}")
+    # Verify the requester belongs to the family
+    member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not member or member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to access family: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this family"
+        )
     
     family = FamilyService.get_family(db, family_id)
     if not family:
@@ -114,7 +106,7 @@ def get_family(
 @router.get("/{family_id}/members", response_model=List[Member])
 def get_family_members(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -134,17 +126,14 @@ def get_family_members(
     Raises:
         HTTPException: If the user doesn't have permission to access the family
     """
-    logger.info(f"Request to get members for family ID: {family_id}, requested by telegram_id: {telegram_id}")
-    
-    # If a telegram_id is provided, verify that the user belongs to the family
-    if telegram_id:
-        member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not member or member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to access family members: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this family"
-            )
+    logger.info(f"Request to get members for family ID: {family_id}, requested by user: {current_user.sub}")
+    member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not member or member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to access family members: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this family"
+        )
     
     members = FamilyService.get_family_members(db, family_id)
     logger.info(f"Retrieved {len(members)} members for family: {family_id}")
@@ -154,7 +143,7 @@ def get_family_members(
 def add_member_to_family(
     family_id: str,
     member: MemberCreate,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -175,23 +164,21 @@ def add_member_to_family(
     Raises:
         HTTPException: If the user doesn't have permission or the member already belongs to a family
     """
-    logger.info(f"Request to add member: '{member.name}' with telegram_id: {member.telegram_id} to family: {family_id}")
-    
-    # If a telegram_id is provided, verify that the user belongs to the family
-    if telegram_id:
-        existing_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not existing_member or existing_member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to add member to family: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this family"
-            )
+    logger.info(f"Request to add member: '{member.name}' to family: {family_id} by user: {current_user.sub}")
+    # Verify requester belongs to family
+    existing_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not existing_member or existing_member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to add member to family: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this family"
+        )
     
     # Check if the member already exists
-    existing_member = MemberService.get_member_by_telegram_id(db, member.telegram_id)
+    existing_member = MemberService.get_member_by_auth0_id(db, member.auth0_user_id)
     if existing_member:
         if existing_member.family_id:
-            logger.warning(f"Member with telegram_id: {member.telegram_id} already belongs to family: {existing_member.family_id}")
+            logger.warning(f"Member with auth0_user_id: {member.auth0_user_id} already belongs to family: {existing_member.family_id}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="This member already belongs to a family"
@@ -204,8 +191,8 @@ def add_member_to_family(
 @router.get("/{family_id}/balances", response_model=List[MemberBalance])
 def get_family_balances(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
-    debug: bool = Query(False, description="Show detailed debug information"),
+    debug: bool = False,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -223,7 +210,7 @@ def get_family_balances(
     Raises:
         HTTPException: If the family is not found or the user doesn't have permission to view the balances
     """
-    logger.info(f"Request to get balances for family: {family_id}, requested by telegram_id: {telegram_id}, debug: {debug}")
+    logger.info(f"Request to get balances for family: {family_id}, requested by user: {current_user.sub}, debug: {debug}")
     
     # Check if the family exists
     family = FamilyService.get_family(db, family_id)
@@ -234,16 +221,14 @@ def get_family_balances(
             detail="Family not found"
         )
     
-    # If a telegram_id is provided, verify that the user belongs to the family
-    if telegram_id:
-        member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not member or member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to view balances for family: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to view this family's balances"
-            )
+    # Verify requester belongs to the family
+    member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not member or member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to view balances for family: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to view this family's balances"
+        )
     
     # Calculate the balances using optimized cache method
     if debug:
@@ -265,8 +250,8 @@ def get_family_balances(
 @router.delete("/{family_id}", status_code=status.HTTP_200_OK)
 def delete_family(
     family_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
-    confirm: bool = Query(False, description="Confirm deletion"),
+    confirm: bool = False,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -280,7 +265,6 @@ def delete_family(
     
     Args:
         family_id: ID de la familia a eliminar
-        telegram_id: ID de Telegram opcional para validación de permisos
         confirm: Debe establecerse como True para confirmar la eliminación
         db: Sesión de base de datos
         
@@ -291,7 +275,7 @@ def delete_family(
         HTTPException: Si la familia no se encuentra, el usuario no tiene permisos,
                        o la operación no está confirmada
     """
-    logger.info(f"Request to delete family: {family_id}, requested by telegram_id: {telegram_id}, confirm: {confirm}")
+    logger.info(f"Request to delete family: {family_id}, requested by user: {current_user.sub}, confirm: {confirm}")
     
     # Verificar que la operación está confirmada
     if not confirm:
@@ -310,16 +294,14 @@ def delete_family(
             detail="Familia no encontrada"
         )
     
-    # Si se proporciona un telegram_id, verificar que el usuario pertenece a la familia
-    if telegram_id:
-        member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not member or member.family_id != family_id:
-            logger.warning(f"Permission denied for telegram_id: {telegram_id} to delete family: {family_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No tienes permiso para eliminar esta familia"
-            )
+    # Verificar que el usuario pertenece a la familia
+    member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not member or member.family_id != family_id:
+        logger.warning(f"Permission denied for user: {current_user.sub} to delete family: {family_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para eliminar esta familia"
+        )
     
     # Eliminar la familia y sus datos relacionados
     result = FamilyService.delete_family(db, family_id)

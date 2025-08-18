@@ -24,7 +24,7 @@ class MemberService:
         """
         db_member = Member(
             name=member.name,
-            telegram_id=member.telegram_id,
+            auth0_user_id=member.auth0_user_id,
             family_id=member.family_id
         )
         db.add(db_member)
@@ -47,18 +47,18 @@ class MemberService:
         return db.query(Member).filter(Member.id == member_id).first()
     
     @staticmethod
-    def get_member_by_telegram_id(db: Session, telegram_id: str):
+    def get_member_by_auth0_id(db: Session, auth0_user_id: str):
         """
-        Get a member by their Telegram ID.
+        Get a member by their Auth0 user ID.
         
         Args:
             db: Database session
-            telegram_id: Telegram ID of the member to retrieve
+            auth0_user_id: Auth0 user ID (JWT 'sub') of the member to retrieve
             
         Returns:
             Member: The requested member or None if not found
         """
-        return db.query(Member).filter(Member.telegram_id == telegram_id).first()
+        return db.query(Member).filter(Member.auth0_user_id == auth0_user_id).first()
     
     @staticmethod
     def update_member(db: Session, member_id: str, member: MemberUpdate):

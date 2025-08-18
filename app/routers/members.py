@@ -6,13 +6,14 @@ It provides routes for retrieving, updating, and deleting members,
 as well as getting member balances.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.models.database import get_db
 from app.models.schemas import Member, MemberCreate, MemberBalance, MemberUpdate
 from app.services.member_service import MemberService
+from app.security.auth0 import User, get_current_user
 from app.services.balance_service import BalanceService
 
 router = APIRouter(
@@ -21,38 +22,21 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-@router.get("/{telegram_id}", response_model=Member)
-def get_member_by_telegram_id(
-    telegram_id: str,
+@router.get("/me", response_model=Member)
+def get_me(
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Get a member by Telegram ID.
-    
-    This endpoint retrieves a member using their Telegram ID.
-    
-    Args:
-        telegram_id (str): Telegram ID of the member to retrieve
-        db (Session): Database session
-    
-    Returns:
-        Member: The requested member
-    
-    Raises:
-        HTTPException: If the member is not found
-    """
-    member = MemberService.get_member_by_telegram_id(db, telegram_id)
+    """Get the current authenticated member mapped by Auth0 user id."""
+    member = MemberService.get_member_by_auth0_id(db, current_user.sub)
     if not member:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Member not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
     return member
 
 @router.get("/id/{member_id}", response_model=Member)
 def get_member_by_id(
     member_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -79,20 +63,19 @@ def get_member_by_id(
             detail="Member not found"
         )
     
-    # If a telegram_id is provided, verify that the user belongs to the same family
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not requesting_member or requesting_member.family_id != member.family_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to access this member"
-            )
+    # Verify the requester belongs to the same family
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != member.family_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this member"
+        )
     
     return member
 
 @router.get("/me/balance", response_model=MemberBalance)
 def get_current_member_balance(
-    telegram_id: str = Query(..., description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -111,7 +94,7 @@ def get_current_member_balance(
     Raises:
         HTTPException: If the member is not found or doesn't belong to a family
     """
-    member = MemberService.get_member_by_telegram_id(db, telegram_id)
+    member = MemberService.get_member_by_auth0_id(db, current_user.sub)
     if not member:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -130,7 +113,7 @@ def get_current_member_balance(
 def update_member(
     member_id: str,
     member: MemberUpdate,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -158,21 +141,19 @@ def update_member(
             detail="Member not found"
         )
     
-    # If a telegram_id is provided, verify that the user is the same member or belongs to the same family
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not requesting_member or (requesting_member.id != member_id and requesting_member.family_id != db_member.family_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to update this member"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or (requesting_member.id != member_id and requesting_member.family_id != db_member.family_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to update this member"
+        )
     
     return MemberService.update_member(db, member_id, member)
 
 @router.delete("/{member_id}", response_model=Member)
 def delete_member(
     member_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -199,21 +180,19 @@ def delete_member(
             detail="Member not found"
         )
     
-    # If a telegram_id is provided, verify that the user belongs to the same family
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        if not requesting_member or requesting_member.family_id != db_member.family_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to delete this member"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != db_member.family_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to delete this member"
+        )
     
     return MemberService.delete_member(db, member_id)
 
 @router.get("/balance/{member_id}", response_model=MemberBalance)
 def get_member_balance(
     member_id: str,
-    telegram_id: Optional[str] = Query(None, description="Telegram ID of the user"),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -240,15 +219,12 @@ def get_member_balance(
             detail="Member not found"
         )
     
-    # If a telegram_id is provided, verify that the user belongs to the same family
-    if telegram_id:
-        requesting_member = MemberService.get_member_by_telegram_id(db, telegram_id)
-        
-        if not requesting_member or requesting_member.family_id != member.family_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to view this member's balance"
-            )
+    requesting_member = MemberService.get_member_by_auth0_id(db, current_user.sub)
+    if not requesting_member or requesting_member.family_id != member.family_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to view this member's balance"
+        )
     
     # Verificamos si podemos usar el caché
     try:
